@@ -12,7 +12,7 @@ from datetime import timedelta
 from typing import Dict, List
 
 import httpx
-from telegram_bot import send_message_and_wait_for_approval
+from telegram_bot import send_message, send_message_and_wait_for_approval
 from tqdm import tqdm
 
 from constants import BASE_URL, BOM_MINS_PER_UNIT, MINS_PER_DAY, PASSWORD, TODAY, USERNAME
@@ -483,11 +483,19 @@ def step6_advance_production(
             # - Operator notification if needed
 
             # Complete the phase
-            resp = client.post(
-                f"{BASE_URL}/api/product/production-order-phase/{phase.id}/_complete"
-            )
-            resp.raise_for_status()
-            print(f"      ✅ Phase completed")
+            try:
+                resp = client.post(
+                    f"{BASE_URL}/api/product/production-order-phase/{phase.id}/_complete"
+                )
+                resp.raise_for_status()
+                print(f"      ✅ Phase completed")
+            except httpx.HTTPStatusError as e:
+                print(f"      ❌ Error completing phase: {e}")
+                print("      Please investigate and resolve manually.")
+                send_message(
+                    f"Something went wrong with sales order {po.sales_order.internal_id} during phase '{phase.name}'. Error code {resp.status_code}. Please investigate."
+                )
+                continue
 
 
 if __name__ == "__main__":
