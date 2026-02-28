@@ -484,7 +484,15 @@ def step6_advance_production(
             # - Defect detection
             # - Operator notification if needed
 
-            validate_phase_completion_visually()  # Function called from camera_verify.py
+            visually_valid = validate_phase_completion_visually()
+
+            if not visually_valid:
+                print(f"      ❌ Phase failed visual verification!")
+                print("      Please investigate and resolve manually.")
+                send_message(
+                    f"Phase '{phase.name}' for sales order {po.sales_order.internal_id} failed visual verification. Please investigate and resolve."
+                )
+                break
 
             # Complete the phase
             try:
@@ -519,7 +527,7 @@ def step6_advance_production(
                 send_message(
                     f"Something went wrong with sales order {po.sales_order.internal_id} during phase '{phase.name}'. Error code {e.response.status_code}; message {e.response.text}. Please investigate."
                 )
-                continue
+                break
 
     send_message("\nAll phases have been advanced (started and completed) 🎉")
 

@@ -14,7 +14,7 @@ def validate_phase_completion_visually() -> bool:
     total_area_green = 0
 
     if not ret:
-        print("Failed to capture image.")
+        print("      Failed to capture image from camera.")
         return False
 
     hsvFrame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -68,10 +68,10 @@ def validate_phase_completion_visually() -> bool:
             total_area_green = total_area_green + area_g
 
     if total_area_red >= total_area_green:
-        print("Red colour detected")
+        print("      Red colour detected")
         return False
 
-    print("Green colour detected")
+    print("      Green colour detected")
     return True
 
 
