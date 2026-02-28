@@ -12,15 +12,14 @@ from datetime import timedelta
 from typing import Dict, List
 
 import httpx
+import numpy as np
+from camera_verify import validate_phase_completion_visually
 from telegram_bot import send_message, send_message_and_wait_for_approval
 from tqdm import tqdm
 
 from constants import BASE_URL, BOM_MINS_PER_UNIT, MINS_PER_DAY, PASSWORD, TODAY, USERNAME
 from models import Phase, ProductionOrder, SalesOrder
 from utils import format_utc_datetime, infer_product_code, parse_deadline
-
-from camera_verify import colour_detection
-import numpy as np
 
 # -------------------------------------------------------------------------
 # Main
@@ -485,7 +484,7 @@ def step6_advance_production(
             # - Defect detection
             # - Operator notification if needed
 
-            colour_detection()  # Function called from camera_verify.py
+            validate_phase_completion_visually()  # Function called from camera_verify.py
 
             # Complete the phase
             try:
