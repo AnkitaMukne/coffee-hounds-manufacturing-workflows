@@ -36,8 +36,11 @@ def main() -> None:
         token = login(client)
         client.headers["Authorization"] = f"Bearer {token}"
 
+        # Build product mapping
+        product_mapping = build_product_mapping(client)
+
         # Step 1: Read open orders — show what needs to be produced
-        sales_orders = step1_read_open_orders(client)
+        sales_orders = step1_read_open_orders(client, product_mapping)
 
         # Step 2: Choose a planning policy (pure reasoning, no API calls)
         production_plan = step2_choose_planning_policy(sales_orders)
@@ -78,11 +81,44 @@ def login(client: httpx.Client) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Product Mapping
+# ---------------------------------------------------------------------------
+
+
+def build_product_mapping(client: httpx.Client) -> Dict[str, str]:
+    """
+    Fetch all products and build a mapping from name/internal_id to product_id.
+
+    GET /api/product/product
+
+    Returns: Dict with both name and internal_id as keys pointing to product_id
+    """
+    print("\n[Setup] Building product mapping...")
+    resp = client.get(f"{BASE_URL}/api/product/product")
+    resp.raise_for_status()
+    products = resp.json()
+
+    mapping = {}
+    for p in products:
+        product_id = p.get('id')
+        name = p.get('name')
+        internal_id = p.get('internal_id')
+
+        if name and product_id:
+            mapping[name] = product_id
+        if internal_id and product_id:
+            mapping[internal_id] = product_id
+
+    print(f"[Setup] Mapped {len(products)} products to {len(mapping)} lookup keys")
+    return mapping
+
+
+# ---------------------------------------------------------------------------
 # Step 1 — Read open orders
 # ---------------------------------------------------------------------------
 
 
-def step1_read_open_orders(client: httpx.Client) -> List[SalesOrder]:
+def step1_read_open_orders(client: httpx.Client, product_mapping: Dict[str, str]) -> List[SalesOrder]:
     """
     Step 1: Read open orders — show what needs to be produced
 
@@ -109,12 +145,19 @@ def step1_read_open_orders(client: httpx.Client) -> List[SalesOrder]:
 
         for line in d.get("products", []):
             product_name = line.get("name", "")
+            # Try to resolve product_id from mapping using extra_id, name, or inferred code
+            product_id = (
+                product_mapping.get(line.get("extra_id", ""))
+                or product_mapping.get(product_name)
+                or line.get("extra_id")
+            )
+
             orders.append(
                 SalesOrder(
                     id=s["id"],
                     internal_id=d.get("internal_id", s["id"]),
                     customer_name=customer_name,
-                    product_id=line.get("extra_id"),
+                    product_id=product_id,
                     product_name=product_name,
                     product_code=infer_product_code(product_name),
                     quantity=int(line.get("quantity", 1)),
@@ -122,9 +165,8 @@ def step1_read_open_orders(client: httpx.Client) -> List[SalesOrder]:
                     priority=priority,
                 )
             )
-            if not orders[-1].product_id:
-                print(f"⚠️ Warning: Could not infer product id for '{product_name}'")
-                print(line)
+            if not orders[-1].product_id or orders[-1].product_id not in product_mapping.values():
+                print(f"⚠️ Warning: Could not resolve product_id for '{product_name}' (got: {product_id})")
 
     # EDF: nearest deadline first, ties broken by priority (lower = more urgent)
     orders.sort(key=lambda o: (o.deadline, o.priority))
@@ -222,7 +264,6 @@ def step3_create_production_orders(
             "starts_at": format_utc_datetime(po.starts_at),
             "ends_at": format_utc_datetime(po.ends_at),
         }
-        print(f"Sending body for {po.sales_order.internal_id}:", body)
         resp = client.put(
             f"{BASE_URL}/api/product/production",
             json=body,
