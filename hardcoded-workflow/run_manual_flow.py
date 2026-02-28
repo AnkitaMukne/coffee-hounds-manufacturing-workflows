@@ -493,7 +493,7 @@ def step6_advance_production(
                 print(f"      ❌ Error completing phase: {e}")
                 print("      Please investigate and resolve manually.")
                 send_message(
-                    f"Something went wrong with sales order {po.sales_order.internal_id} during phase '{phase.name}'. Error code {resp.status_code}. Please investigate."
+                    f"Something went wrong with sales order {po.sales_order.internal_id} during phase '{phase.name}'. Error code {e.response.status_code}; message {e.response.text}. Please investigate."
                 )
                 continue
 
