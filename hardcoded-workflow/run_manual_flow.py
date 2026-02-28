@@ -12,7 +12,6 @@ from datetime import timedelta
 from typing import Dict, List
 
 import httpx
-import numpy as np
 from camera_verify import validate_phase_completion_visually
 from telegram_bot import send_message, send_message_and_wait_for_approval
 from tqdm import tqdm
@@ -41,6 +40,9 @@ def main() -> None:
         # Build product mapping
         product_mapping = build_product_mapping(client)
 
+        # Cache product details (including process_lines with durations)
+        product_details_cache = build_product_details_cache(client, product_mapping)
+
         # Step 1: Read open orders — show what needs to be produced
         sales_orders = step1_read_open_orders(client, product_mapping)
 
@@ -51,7 +53,7 @@ def main() -> None:
         production_orders = step3_create_production_orders(client, production_plan)
 
         # Step 4: Schedule phases with concrete start/end dates
-        production_orders = step4_schedule_phases(client, production_orders)
+        production_orders = step4_schedule_phases(client, production_orders, product_details_cache)
 
         # Step 5: Human-in-the-loop — present schedule and get approval
         approved = step5_get_human_approval(production_orders)
@@ -102,14 +104,22 @@ def build_product_mapping(client: httpx.Client) -> Dict[str, str]:
 
     mapping = {}
     for p in products:
-        product_id = p.get("id")
-        name = p.get("name")
-        internal_id = p.get("internal_id")
+        try:
+            product_id = p["id"]
+            try:
+                name = p["name"]
+                mapping[name] = product_id
+            except KeyError:
+                print(f"⚠️ Warning: Product {product_id} missing 'name' field")
 
-        if name and product_id:
-            mapping[name] = product_id
-        if internal_id and product_id:
-            mapping[internal_id] = product_id
+            try:
+                internal_id = p["internal_id"]
+                mapping[internal_id] = product_id
+            except KeyError:
+                print(f"⚠️ Warning: Product {product_id} missing 'internal_id' field")
+        except KeyError:
+            print(f"⚠️ Warning: Product entry missing 'id' field: {p}")
+            continue
 
     print(f"[Setup] Mapped {len(products)} products to {len(mapping)} lookup keys")
     return mapping
@@ -143,28 +153,77 @@ def step1_read_open_orders(
         detail_resp.raise_for_status()
         d: Dict = detail_resp.json()
 
-        deadline = parse_deadline(d["expected_shipping_time"])
-        priority = int(d.get("priority", 3))
-        customer_name = (d.get("customer_attr") or {}).get("name", "Unknown")
+        try:
+            deadline = parse_deadline(d["expected_shipping_time"])
+        except KeyError:
+            print(f"⚠️ Warning: Order {s['id']} missing 'expected_shipping_time', skipping")
+            continue
 
-        for line in d.get("products", []):
-            product_name = line.get("name", "")
-            # Try to resolve product_id from mapping using extra_id, name, or inferred code
-            product_id = (
-                product_mapping.get(line.get("extra_id", ""))
-                or product_mapping.get(product_name)
-                or line.get("extra_id")
-            )
+        try:
+            priority = int(d["priority"])
+        except KeyError:
+            print(f"⚠️ Warning: Order {s['id']} missing 'priority', defaulting to 3")
+            priority = 3
+
+        try:
+            customer_name = d["customer_attr"]["name"]
+        except KeyError:
+            print(f"⚠️ Warning: Order {s['id']} missing customer name, using 'Unknown'")
+            customer_name = "Unknown"
+
+        try:
+            products_list = d["products"]
+        except KeyError:
+            print(f"⚠️ Warning: Order {s['id']} missing 'products' field, skipping")
+            continue
+
+        for line in products_list:
+            try:
+                product_name = line["name"]
+            except KeyError:
+                print(f"⚠️ Warning: Product line in order {s['id']} missing 'name', skipping")
+                continue
+
+            # Try to resolve product_id from mapping
+            product_id = None
+            try:
+                extra_id = line["extra_id"]
+                product_id = product_mapping.get(extra_id)
+            except KeyError:
+                pass
+
+            if not product_id:
+                product_id = product_mapping.get(product_name)
+
+            if not product_id:
+                try:
+                    product_id = line["extra_id"]
+                except KeyError:
+                    print(f"⚠️ Warning: Could not resolve product_id for '{product_name}'")
+                    product_id = None
+
+            try:
+                quantity = int(line["quantity"])
+            except KeyError:
+                print(
+                    f"⚠️ Warning: Product line '{product_name}' missing 'quantity', defaulting to 1"
+                )
+                quantity = 1
+
+            try:
+                internal_id = d["internal_id"]
+            except KeyError:
+                internal_id = s["id"]
 
             orders.append(
                 SalesOrder(
                     id=s["id"],
-                    internal_id=d.get("internal_id", s["id"]),
+                    internal_id=internal_id,
                     customer_name=customer_name,
                     product_id=product_id,
                     product_name=product_name,
                     product_code=infer_product_code(product_name),
-                    quantity=int(line.get("quantity", 1)),
+                    quantity=quantity,
                     deadline=deadline,
                     priority=priority,
                 )
@@ -292,16 +351,18 @@ def step3_create_production_orders(
 def step4_schedule_phases(
     client: httpx.Client,
     production_orders: List[ProductionOrder],
+    product_details_cache: Dict[str, Dict],
 ) -> List[ProductionOrder]:
     """
     Step 4: Schedule phases with concrete start/end dates
 
     1. Call _schedule on each production order → Arke generates phase sequence from BOM
-    2. GET /api/product/production/{id} to read phases with duration_per_unit
-    3. Assign concrete start/end dates to each phase (sequential)
-    4. Update each phase with start/end dates
+    2. GET /api/product/production/{id} to read phases with phase names
+    3. Look up duration from product's process_lines
+    4. Assign concrete start/end dates to each phase (sequential)
+    5. Update each phase with start/end dates
 
-    Phase duration: total_minutes = duration_per_unit × quantity
+    Phase duration: total_minutes = duration × quantity
     Working day = 480 min (8h)
 
     POST /api/product/production/{id}/_schedule
@@ -317,20 +378,68 @@ def step4_schedule_phases(
         resp = client.post(f"{BASE_URL}/api/product/production/{po.production_order_id}/_schedule")
         resp.raise_for_status()
 
-        # 2. Get phases with duration_per_unit
+        # 2. Get phases with phase names
         resp = client.get(f"{BASE_URL}/api/product/production/{po.production_order_id}")
         resp.raise_for_status()
         prod_data = resp.json()
-        phases_data = prod_data.get("phases", [])
+
+        try:
+            phases_data = prod_data["phases"]
+        except KeyError:
+            print(
+                f"⚠️ Warning: Production order {po.production_order_id} missing 'phases', skipping"
+            )
+            continue
+
+        # Get product details for duration lookup
+        try:
+            product_details = product_details_cache[po.sales_order.product_id]
+        except KeyError:
+            print(f"⚠️ Warning: No cached details for product {po.sales_order.product_id}")
+            product_details = {"process_lines": []}
+
+        try:
+            process_lines = product_details["process_lines"]
+        except KeyError:
+            print(f"⚠️ Warning: Product {po.sales_order.product_id} missing 'process_lines'")
+            process_lines = []
+
+        # Build phase name -> duration mapping
+        phase_durations = {}
+        for line in process_lines:
+            try:
+                name = line["name"]
+                try:
+                    duration = int(line["duration"])
+                except KeyError:
+                    print(f"⚠️ Warning: Process line '{name}' missing 'duration', using 60")
+                    duration = 60
+                phase_durations[name] = duration
+            except KeyError:
+                print(f"⚠️ Warning: Process line missing 'name' field, skipping")
+                continue
 
         # 3. Compute and set start/end for each phase (sequential)
         phase_cursor = po.starts_at
         phases: List[Phase] = []
 
         for phase_data in phases_data:
-            phase_id = phase_data["id"]
-            phase_name = phase_data.get("name", "Unknown Phase")
-            duration_per_unit = phase_data.get("duration_per_unit", 60)
+            try:
+                phase_id = phase_data["id"]
+            except KeyError:
+                print(f"⚠️ Warning: Phase data missing 'id', skipping")
+                continue
+
+            # Parse actual phase name from nested structure
+            try:
+                phase_name = phase_data["phase"]["name"]
+            except KeyError:
+                print(f"⚠️ Warning: Phase {phase_id} missing nested name, using 'Unknown Phase'")
+                phase_name = "Unknown Phase"
+
+            # Look up duration from product's process_lines
+            duration_per_unit = phase_durations.get(phase_name, 60)
+
             total_mins = duration_per_unit * po.sales_order.quantity
             phase_days = math.ceil(total_mins / MINS_PER_DAY)
 
@@ -500,7 +609,12 @@ def step6_advance_production(
                 phase_resp = client.get(f"{BASE_URL}/api/product/production-order-phase/{phase.id}")
                 phase_resp.raise_for_status()
                 phase_data = phase_resp.json()
-                is_final = phase_data.get("is_final", False)
+
+                try:
+                    is_final = phase_data["is_final"]
+                except KeyError:
+                    print(f"      ⚠️ Warning: Phase {phase.id} missing 'is_final', assuming False")
+                    is_final = False
 
                 # Build completion request body
                 completion_body = {
@@ -530,6 +644,38 @@ def step6_advance_production(
                 break
 
     send_message("\nAll phases have been advanced (started and completed) 🎉")
+
+
+# ---------------------------------------------------------------------------
+# Product Details Cache
+# ---------------------------------------------------------------------------
+
+
+def build_product_details_cache(
+    client: httpx.Client, product_mapping: Dict[str, str]
+) -> Dict[str, Dict]:
+    """
+    Fetch product details for all products to cache process_lines (phase durations).
+
+    GET /api/product/product/{product_id}
+
+    Returns: Dict mapping product_id to product details
+    """
+    print("\n[Setup] Caching product details with process_lines...")
+    cache = {}
+    unique_product_ids = set(product_mapping.values())
+
+    for product_id in tqdm(unique_product_ids, desc="Fetching product details"):
+        try:
+            resp = client.get(f"{BASE_URL}/api/product/product/{product_id}")
+            resp.raise_for_status()
+            cache[product_id] = resp.json()
+        except Exception as e:
+            print(f"⚠️ Warning: Could not fetch details for product {product_id}: {e}")
+            cache[product_id] = {"process_lines": []}
+
+    print(f"[Setup] Cached details for {len(cache)} products")
+    return cache
 
 
 if __name__ == "__main__":
