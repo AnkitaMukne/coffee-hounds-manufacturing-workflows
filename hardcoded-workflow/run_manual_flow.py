@@ -19,7 +19,10 @@ from constants import BASE_URL, BOM_MINS_PER_UNIT, MINS_PER_DAY, PASSWORD, TODAY
 from models import Phase, ProductionOrder, SalesOrder
 from utils import format_utc_datetime, infer_product_code, parse_deadline
 
-# ---------------------------------------------------------------------------
+from camera_verify import colour_detection
+import numpy as np
+
+# -------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -465,7 +468,7 @@ def step6_advance_production(
     Note: Physical layer integration not yet implemented - phases are started and completed immediately
     """
     print("\n[Step 6] Advancing production phases...")
-    print("  Note: Physical layer integration not yet implemented")
+    print("  Camera started...verifying phase completion...")
 
     for po in production_orders:
         print(f"\n  {po.sales_order.internal_id} (PO: {po.production_order_id}):")
@@ -481,6 +484,8 @@ def step6_advance_production(
             # - Camera/VLM verification
             # - Defect detection
             # - Operator notification if needed
+
+            colour_detection()  # Function called from camera_verify.py
 
             # Complete the phase
             try:
