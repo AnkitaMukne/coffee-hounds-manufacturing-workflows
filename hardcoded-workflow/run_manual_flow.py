@@ -345,15 +345,6 @@ def step5_get_human_approval(production_orders: List[ProductionOrder]) -> bool:
             f"| deadline {so.deadline.strftime('%b %d')} | P{so.priority} {flag}"
         )
 
-    # Add EDF reasoning for SO-005 conflict
-    lines.append(
-        "\n🔍 EDF Policy Explanation:\n"
-        "SO-003 (AgriBot, P2, deadline Mar 4) is scheduled before\n"
-        "SO-005 (SmartHome IoT, P1 escalated, deadline Mar 8).\n"
-        "EDF prioritises tighter deadlines — both deadlines are met.\n"
-        "No manual intervention needed."
-    )
-
     lines.append("\n✉️ Reply APPROVE to confirm, or describe changes.")
     message = "\n".join(lines)
 
