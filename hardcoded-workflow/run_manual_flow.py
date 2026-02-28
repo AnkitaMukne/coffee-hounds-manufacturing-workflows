@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 from constants import BASE_URL, BOM_MINS_PER_UNIT, MINS_PER_DAY, PASSWORD, TODAY, USERNAME
 from models import Phase, ProductionOrder, SalesOrder
-from utils import infer_product_code, parse_deadline
+from utils import format_utc_datetime, infer_product_code, parse_deadline
 
 # ---------------------------------------------------------------------------
 # Main
@@ -114,7 +114,7 @@ def step1_read_open_orders(client: httpx.Client) -> List[SalesOrder]:
                     id=s["id"],
                     internal_id=d.get("internal_id", s["id"]),
                     customer_name=customer_name,
-                    product_id=line.get("item_id") or line.get("id", ""),
+                    product_id=line.get("extra_id"),
                     product_name=product_name,
                     product_code=infer_product_code(product_name),
                     quantity=int(line.get("quantity", 1)),
@@ -122,6 +122,9 @@ def step1_read_open_orders(client: httpx.Client) -> List[SalesOrder]:
                     priority=priority,
                 )
             )
+            if not orders[-1].product_id:
+                print(f"⚠️ Warning: Could not infer product id for '{product_name}'")
+                print(line)
 
     # EDF: nearest deadline first, ties broken by priority (lower = more urgent)
     orders.sort(key=lambda o: (o.deadline, o.priority))
@@ -179,7 +182,7 @@ def step2_choose_planning_policy(sales_orders: List[SalesOrder]) -> List[Product
         so = po.sales_order
         flag = "OK" if po.on_time else "LATE"
         print(
-            f"  {so.internal_id}: {po.starts_at.date()} -> {po.ends_at.date()} "
+            f"  {so.internal_id}; {so.product_id}: {po.starts_at.date()} -> {po.ends_at.date()} "
             f"(deadline {so.deadline.date()}) [{flag}]"
         )
 
@@ -213,14 +216,16 @@ def step3_create_production_orders(
 
     updated: List[ProductionOrder] = []
     for po in tqdm(production_plan, desc="Creating production orders"):
+        body = {
+            "product_id": po.sales_order.product_id,
+            "quantity": po.sales_order.quantity,
+            "starts_at": format_utc_datetime(po.starts_at),
+            "ends_at": format_utc_datetime(po.ends_at),
+        }
+        print(f"Sending body for {po.sales_order.internal_id}:", body)
         resp = client.put(
             f"{BASE_URL}/api/product/production",
-            json={
-                "product_id": po.sales_order.product_id,
-                "quantity": po.sales_order.quantity,
-                "starts_at": po.starts_at.isoformat(),
-                "ends_at": po.ends_at.isoformat(),
-            },
+            json=body,
         )
         resp.raise_for_status()
         prod_order_data = resp.json()
@@ -288,11 +293,11 @@ def step4_schedule_phases(
 
             client.post(
                 f"{BASE_URL}/api/product/production-order-phase/{phase_id}/_update_starting_date",
-                json={"starting_date": phase_start.isoformat()},
+                json={"starting_date": format_utc_datetime(phase_start)},
             )
             client.post(
                 f"{BASE_URL}/api/product/production-order-phase/{phase_id}/_update_ending_date",
-                json={"ending_date": phase_end.isoformat()},
+                json={"ending_date": format_utc_datetime(phase_end)},
             )
 
             phases.append(
