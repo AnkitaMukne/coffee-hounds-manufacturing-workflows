@@ -16,7 +16,7 @@ MINS_PER_DAY = 480
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN = "8391945774:AAGCryNT_t-ePLJcFI2lrNZTqVm8gBH9RQk"
 TELEGRAM_CHAT_ID = "-1003833527945"
-TELEGRAM_POLL_TIMEOUT = 10  # seconds
+TELEGRAM_POLL_TIMEOUT = 30  # seconds
 
 # BOM: total minutes per unit, keyed by product code
 # Source: mission briefing (SMT + Reflow + THT + AOI + Test + Coating + Pack)
