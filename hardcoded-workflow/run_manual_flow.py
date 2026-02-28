@@ -393,7 +393,7 @@ def step5_get_human_approval(production_orders: List[ProductionOrder]) -> bool:
             f"| deadline {so.deadline.strftime('%b %d')} | P{so.priority} {flag}"
         )
 
-    lines.append("\n✉️ Reply APPROVE to confirm, or describe changes.")
+    lines.append("\n✉️ Reply \approve to confirm, or \disapprove to defer.")
     message = "\n".join(lines)
 
     # Send via Telegram/Slack/Discord
@@ -516,6 +516,8 @@ def step6_advance_production(
                     f"Something went wrong with sales order {po.sales_order.internal_id} during phase '{phase.name}'. Error code {e.response.status_code}; message {e.response.text}. Please investigate."
                 )
                 continue
+
+    send_message("\nAll phases have been advanced (started and completed) 🎉")
 
 
 if __name__ == "__main__":
