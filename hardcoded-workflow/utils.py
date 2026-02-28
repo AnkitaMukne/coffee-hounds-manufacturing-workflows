@@ -16,5 +16,10 @@ def infer_product_code(product_name: str) -> str:
 
 
 def parse_deadline(iso: str) -> datetime:
-    """Parse ISO datetime string to datetime object."""
-    return datetime.fromisoformat(iso.replace("Z", "+00:00")).replace(tzinfo=None)
+    """Parse ISO datetime string to UTC datetime object."""
+    return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+
+def format_utc_datetime(dt: datetime) -> str:
+    """Format datetime as Z-suffixed UTC string (e.g., '2026-02-28T08:00:00Z')."""
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")

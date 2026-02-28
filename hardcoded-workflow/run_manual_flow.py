@@ -12,12 +12,12 @@ from datetime import timedelta
 from typing import Dict, List
 
 import httpx
-from telegram_bot import send_message_and_wait_for_approval
+from telegram_bot import send_message, send_message_and_wait_for_approval
 from tqdm import tqdm
 
 from constants import BASE_URL, BOM_MINS_PER_UNIT, MINS_PER_DAY, PASSWORD, TODAY, USERNAME
 from models import Phase, ProductionOrder, SalesOrder
-from utils import infer_product_code, parse_deadline
+from utils import format_utc_datetime, infer_product_code, parse_deadline
 
 # ---------------------------------------------------------------------------
 # Main
@@ -36,14 +36,14 @@ def main() -> None:
         token = login(client)
         client.headers["Authorization"] = f"Bearer {token}"
 
+        # Build product mapping
+        product_mapping = build_product_mapping(client)
+
         # Step 1: Read open orders — show what needs to be produced
-        sales_orders = step1_read_open_orders(client)
+        sales_orders = step1_read_open_orders(client, product_mapping)
 
         # Step 2: Choose a planning policy (pure reasoning, no API calls)
         production_plan = step2_choose_planning_policy(sales_orders)
-
-        print("Early exit after Step 2 for testing without state-altering Arke API calls.")
-        exit()
 
         # Step 3: Create production orders in Arke
         production_orders = step3_create_production_orders(client, production_plan)
@@ -81,11 +81,46 @@ def login(client: httpx.Client) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Product Mapping
+# ---------------------------------------------------------------------------
+
+
+def build_product_mapping(client: httpx.Client) -> Dict[str, str]:
+    """
+    Fetch all products and build a mapping from name/internal_id to product_id.
+
+    GET /api/product/product
+
+    Returns: Dict with both name and internal_id as keys pointing to product_id
+    """
+    print("\n[Setup] Building product mapping...")
+    resp = client.get(f"{BASE_URL}/api/product/product")
+    resp.raise_for_status()
+    products = resp.json()
+
+    mapping = {}
+    for p in products:
+        product_id = p.get("id")
+        name = p.get("name")
+        internal_id = p.get("internal_id")
+
+        if name and product_id:
+            mapping[name] = product_id
+        if internal_id and product_id:
+            mapping[internal_id] = product_id
+
+    print(f"[Setup] Mapped {len(products)} products to {len(mapping)} lookup keys")
+    return mapping
+
+
+# ---------------------------------------------------------------------------
 # Step 1 — Read open orders
 # ---------------------------------------------------------------------------
 
 
-def step1_read_open_orders(client: httpx.Client) -> List[SalesOrder]:
+def step1_read_open_orders(
+    client: httpx.Client, product_mapping: Dict[str, str]
+) -> List[SalesOrder]:
     """
     Step 1: Read open orders — show what needs to be produced
 
@@ -112,12 +147,19 @@ def step1_read_open_orders(client: httpx.Client) -> List[SalesOrder]:
 
         for line in d.get("products", []):
             product_name = line.get("name", "")
+            # Try to resolve product_id from mapping using extra_id, name, or inferred code
+            product_id = (
+                product_mapping.get(line.get("extra_id", ""))
+                or product_mapping.get(product_name)
+                or line.get("extra_id")
+            )
+
             orders.append(
                 SalesOrder(
                     id=s["id"],
                     internal_id=d.get("internal_id", s["id"]),
                     customer_name=customer_name,
-                    product_id=line.get("item_id") or line.get("id", ""),
+                    product_id=product_id,
                     product_name=product_name,
                     product_code=infer_product_code(product_name),
                     quantity=int(line.get("quantity", 1)),
@@ -125,6 +167,10 @@ def step1_read_open_orders(client: httpx.Client) -> List[SalesOrder]:
                     priority=priority,
                 )
             )
+            if not orders[-1].product_id or orders[-1].product_id not in product_mapping.values():
+                print(
+                    f"⚠️ Warning: Could not resolve product_id for '{product_name}' (got: {product_id})"
+                )
 
     # EDF: nearest deadline first, ties broken by priority (lower = more urgent)
     orders.sort(key=lambda o: (o.deadline, o.priority))
@@ -182,7 +228,7 @@ def step2_choose_planning_policy(sales_orders: List[SalesOrder]) -> List[Product
         so = po.sales_order
         flag = "OK" if po.on_time else "LATE"
         print(
-            f"  {so.internal_id}: {po.starts_at.date()} -> {po.ends_at.date()} "
+            f"  {so.internal_id}; {so.product_id}: {po.starts_at.date()} -> {po.ends_at.date()} "
             f"(deadline {so.deadline.date()}) [{flag}]"
         )
 
@@ -216,14 +262,15 @@ def step3_create_production_orders(
 
     updated: List[ProductionOrder] = []
     for po in tqdm(production_plan, desc="Creating production orders"):
+        body = {
+            "product_id": po.sales_order.product_id,
+            "quantity": po.sales_order.quantity,
+            "starts_at": format_utc_datetime(po.starts_at),
+            "ends_at": format_utc_datetime(po.ends_at),
+        }
         resp = client.put(
             f"{BASE_URL}/api/product/production",
-            json={
-                "product_id": po.sales_order.product_id,
-                "quantity": po.sales_order.quantity,
-                "starts_at": po.starts_at.isoformat(),
-                "ends_at": po.ends_at.isoformat(),
-            },
+            json=body,
         )
         resp.raise_for_status()
         prod_order_data = resp.json()
@@ -291,11 +338,11 @@ def step4_schedule_phases(
 
             client.post(
                 f"{BASE_URL}/api/product/production-order-phase/{phase_id}/_update_starting_date",
-                json={"starting_date": phase_start.isoformat()},
+                json={"starting_date": format_utc_datetime(phase_start)},
             )
             client.post(
                 f"{BASE_URL}/api/product/production-order-phase/{phase_id}/_update_ending_date",
-                json={"ending_date": phase_end.isoformat()},
+                json={"ending_date": format_utc_datetime(phase_end)},
             )
 
             phases.append(
@@ -346,7 +393,7 @@ def step5_get_human_approval(production_orders: List[ProductionOrder]) -> bool:
             f"| deadline {so.deadline.strftime('%b %d')} | P{so.priority} {flag}"
         )
 
-    lines.append("\n✉️ Reply APPROVE to confirm, or describe changes.")
+    lines.append("\n✉️ Reply \approve to confirm, or \disapprove to defer.")
     message = "\n".join(lines)
 
     # Send via Telegram/Slack/Discord
@@ -380,13 +427,13 @@ def confirm_production_orders(
     """
     Confirm production orders in Arke after human approval.
 
-    POST /api/product/production/{id}/_confirm
+    POST /api/product/production/{id}/_start
 
-    Moves order to in_progress; first phase becomes ready_to_start.
+    Moves order from scheduled to in_progress; first phase becomes ready_to_start.
     """
-    print("\n[Arke] Confirming production orders...")
-    for po in tqdm(production_orders, desc="Confirming orders"):
-        resp = client.post(f"{BASE_URL}/api/product/production/{po.production_order_id}/_confirm")
+    print("\n[Arke] Starting production orders...")
+    for po in tqdm(production_orders, desc="Starting orders"):
+        resp = client.post(f"{BASE_URL}/api/product/production/{po.production_order_id}/_start")
         resp.raise_for_status()
         print(f"  ✅ {po.sales_order.internal_id} → in_progress")
 
@@ -436,11 +483,41 @@ def step6_advance_production(
             # - Operator notification if needed
 
             # Complete the phase
-            resp = client.post(
-                f"{BASE_URL}/api/product/production-order-phase/{phase.id}/_complete"
-            )
-            resp.raise_for_status()
-            print(f"      ✅ Phase completed")
+            try:
+                # Fetch phase details to check if it's the final phase
+                phase_resp = client.get(f"{BASE_URL}/api/product/production-order-phase/{phase.id}")
+                phase_resp.raise_for_status()
+                phase_data = phase_resp.json()
+                is_final = phase_data.get("is_final", False)
+
+                # Build completion request body
+                completion_body = {
+                    "raw_material_inventory": [],
+                    "skip_consumption": False,
+                }
+
+                # If final phase, include completed quantity
+                if is_final:
+                    completion_body["completed"] = po.sales_order.quantity
+                    print(
+                        f"      ℹ️  Final phase - including completed quantity: {po.sales_order.quantity}"
+                    )
+
+                resp = client.post(
+                    f"{BASE_URL}/api/product/production-order-phase/{phase.id}/_complete",
+                    json=completion_body,
+                )
+                resp.raise_for_status()
+                print(f"      ✅ Phase completed")
+            except httpx.HTTPStatusError as e:
+                print(f"      ❌ Error completing phase: {e}")
+                print("      Please investigate and resolve manually.")
+                send_message(
+                    f"Something went wrong with sales order {po.sales_order.internal_id} during phase '{phase.name}'. Error code {e.response.status_code}; message {e.response.text}. Please investigate."
+                )
+                continue
+
+    send_message("\nAll phases have been advanced (started and completed) 🎉")
 
 
 if __name__ == "__main__":

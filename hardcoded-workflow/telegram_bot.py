@@ -21,6 +21,11 @@ def send_message_and_wait_for_approval(text: str) -> bool:
     return approved
 
 
+def send_message(text: str) -> None:
+    """Send a message to the Telegram bot."""
+    asyncio.run(send_bot_message_async(text))
+
+
 def wait_for_latest_message_to_be_approve_or_disapprove() -> bool:
     print(
         f"Waiting for up to {TELEGRAM_POLL_TIMEOUT} seconds for approval or disapproval message..."
