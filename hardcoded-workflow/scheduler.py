@@ -8,94 +8,15 @@ API base: https://hackathon33.arke.so
 """
 
 import math
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import timedelta
+from typing import Dict, List, Optional
 
 import httpx
-from pydantic import BaseModel, Field
 from tqdm import tqdm
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-BASE_URL = "https://hackathon33.arke.so"
-USERNAME = "arke"
-PASSWORD = "arke"
-TODAY = datetime(2026, 2, 28, 8, 0, 0)
-MINS_PER_DAY = 480
-TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN"
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
-
-# BOM: total minutes per unit, keyed by product code
-# Source: mission briefing (SMT + Reflow + THT + AOI + Test + Coating + Pack)
-BOM_MINS_PER_UNIT: dict[str, int] = {
-    "PCB-IND-100": 147,
-    "MED-300": 279,
-    "IOT-200": 63,
-    "AGR-400": 144,
-    "PCB-PWR-500": 75,
-}
-
-PRODUCT_NAME_TO_CODE: dict[str, str] = {
-    "Industrial Control Board": "PCB-IND-100",
-    "Medical Monitor PCB": "MED-300",
-    "IoT Sensor Board": "IOT-200",
-    "AgriBot Control PCB": "AGR-400",
-    "Power Management PCB": "PCB-PWR-500",
-}
-
-# ---------------------------------------------------------------------------
-# Pydantic models
-# ---------------------------------------------------------------------------
-
-
-class SalesOrder(BaseModel):
-    id: str
-    internal_id: str  # e.g. "SO-2024-001"
-    customer_name: str
-    product_id: str
-    product_name: str
-    product_code: str  # e.g. "IOT-200" — BOM lookup key
-    quantity: int
-    deadline: datetime  # parsed from expected_shipping_time
-    priority: int = Field(default=3, ge=1, le=5)
-
-
-class Phase(BaseModel):
-    id: str
-    name: str
-    starts_at: datetime
-    ends_at: datetime
-
-
-class ProductionOrder(BaseModel):
-    sales_order: SalesOrder
-    starts_at: datetime
-    ends_at: datetime
-    production_order_id: Optional[str] = None  # set after Arke creation
-    phases: list[Phase] = Field(default_factory=list)
-
-    @property
-    def on_time(self) -> bool:
-        return self.ends_at <= self.sales_order.deadline
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _infer_product_code(product_name: str) -> str:
-    for k, v in PRODUCT_NAME_TO_CODE.items():
-        if k.lower() in product_name.lower():
-            return v
-    return ""
-
-
-def _parse_deadline(iso: str) -> datetime:
-    return datetime.fromisoformat(iso.replace("Z", "+00:00")).replace(tzinfo=None)
-
+from .constants import BASE_URL, BOM_MINS_PER_UNIT, MINS_PER_DAY, PASSWORD, TODAY, USERNAME
+from .models import Phase, ProductionOrder, SalesOrder
+from .utils import infer_product_code, parse_deadline
 
 # ---------------------------------------------------------------------------
 # Step 1 — Auth
@@ -116,7 +37,7 @@ def login(client: httpx.Client) -> str:
 # ---------------------------------------------------------------------------
 
 
-def get_accepted_orders(client: httpx.Client) -> list[SalesOrder]:
+def get_accepted_orders(client: httpx.Client) -> List[SalesOrder]:
     """
     GET /api/sales/order?status=accepted  -> list[orderSummary]
     GET /api/sales/order/{id}             -> orderDetails (includes product lines)
@@ -128,15 +49,15 @@ def get_accepted_orders(client: httpx.Client) -> list[SalesOrder]:
     """
     resp = client.get(f"{BASE_URL}/api/sales/order", params={"status": "accepted"})
     resp.raise_for_status()
-    summaries: list[dict] = resp.json()
+    summaries: List[Dict] = resp.json()
 
-    orders: list[SalesOrder] = []
+    orders: List[SalesOrder] = []
     for s in tqdm(summaries, desc="Fetching order details"):
         detail_resp = client.get(f"{BASE_URL}/api/sales/order/{s['id']}")
         detail_resp.raise_for_status()
-        d: dict = detail_resp.json()
+        d: Dict = detail_resp.json()
 
-        deadline = _parse_deadline(d["expected_shipping_time"])
+        deadline = parse_deadline(d["expected_shipping_time"])
         priority = int(d.get("priority", 3))
         customer_name = (d.get("customer_attr") or {}).get("name", "Unknown")
 
@@ -149,7 +70,7 @@ def get_accepted_orders(client: httpx.Client) -> list[SalesOrder]:
                     customer_name=customer_name,
                     product_id=line.get("item_id") or line.get("id", ""),
                     product_name=product_name,
-                    product_code=_infer_product_code(product_name),
+                    product_code=infer_product_code(product_name),
                     quantity=int(line.get("quantity", 1)),
                     deadline=deadline,
                     priority=priority,
@@ -174,13 +95,13 @@ def get_accepted_orders(client: httpx.Client) -> list[SalesOrder]:
 # ---------------------------------------------------------------------------
 
 
-def compute_schedule(orders: list[SalesOrder]) -> list[ProductionOrder]:
+def compute_schedule(orders: List[SalesOrder]) -> List[ProductionOrder]:
     """
     Assign starts_at / ends_at sequentially.
     total_mins = BOM_MINS_PER_UNIT[product_code] x quantity
     days       = ceil(total_mins / 480)
     """
-    production_orders: list[ProductionOrder] = []
+    production_orders: List[ProductionOrder] = []
     cursor = TODAY
 
     print("\n[schedule] EDF schedule:")
@@ -210,7 +131,7 @@ def compute_schedule(orders: list[SalesOrder]) -> list[ProductionOrder]:
 # ---------------------------------------------------------------------------
 
 
-def detect_conflict(production_orders: list[ProductionOrder]) -> Optional[str]:
+def detect_conflict(production_orders: List[ProductionOrder]) -> Optional[str]:
     """
     SO-005 (SmartHome IoT, P1 escalated, deadline Mar 8) vs
     SO-003 (AgriBot, P2, deadline Mar 4).
@@ -261,8 +182,8 @@ def detect_conflict(production_orders: list[ProductionOrder]) -> Optional[str]:
 
 def create_production_orders_in_arke(
     client: httpx.Client,
-    production_orders: list[ProductionOrder],
-) -> list[ProductionOrder]:
+    production_orders: List[ProductionOrder],
+) -> List[ProductionOrder]:
     """
     STUB — assigns dummy IDs. Real implementation per order:
 
@@ -283,7 +204,7 @@ def create_production_orders_in_arke(
             POST /api/product/production-order-phase/{phaseId}/_update_ending_date
     """
     print("\n[arke] STUB: skipping production order creation")
-    updated: list[ProductionOrder] = []
+    updated: List[ProductionOrder] = []
     for i, po in enumerate(tqdm(production_orders, desc="Creating production orders (stub)")):
         dummy_phases = [
             Phase(
@@ -311,7 +232,7 @@ def create_production_orders_in_arke(
 
 
 def notify_and_wait_for_approval(
-    production_orders: list[ProductionOrder],
+    production_orders: List[ProductionOrder],
     conflict_msg: Optional[str],
 ) -> bool:
     """
@@ -356,7 +277,7 @@ def notify_and_wait_for_approval(
 
 def confirm_production_orders(
     client: httpx.Client,
-    production_orders: list[ProductionOrder],
+    production_orders: List[ProductionOrder],
 ) -> None:
     """
     POST /api/product/production/{id}/_confirm
@@ -379,7 +300,7 @@ def confirm_production_orders(
 
 def advance_phases(
     client: httpx.Client,
-    production_orders: list[ProductionOrder],
+    production_orders: List[ProductionOrder],
 ) -> None:
     """
     STUB. Real implementation per phase:
