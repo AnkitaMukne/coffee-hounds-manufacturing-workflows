@@ -396,7 +396,7 @@ def step5_get_human_approval(production_orders: List[ProductionOrder]) -> bool:
             f"| deadline {so.deadline.strftime('%b %d')} | P{so.priority} {flag}"
         )
 
-    lines.append("\n✉️ Reply \approve to confirm, or \disapprove to defer.")
+    lines.append("\n✉️ Reply /approve to confirm, or /disapprove to defer.")
     message = "\n".join(lines)
 
     # Send via Telegram/Slack/Discord
