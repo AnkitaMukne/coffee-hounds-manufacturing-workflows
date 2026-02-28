@@ -9,9 +9,10 @@ API base: https://hackathon33.arke.so
 
 import math
 from datetime import timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import httpx
+from telegram_bot import send_message_and_wait_for_approval
 from tqdm import tqdm
 
 from constants import BASE_URL, BOM_MINS_PER_UNIT, MINS_PER_DAY, PASSWORD, TODAY, USERNAME
@@ -356,9 +357,9 @@ def step5_get_human_approval(production_orders: List[ProductionOrder]) -> bool:
 
     # Wait for operator response
     print("\n[Step 5] Waiting for operator approval...")
-    reply = input("  Type APPROVE to confirm, anything else to cancel: ").strip().upper()
 
-    approved = reply == "APPROVE"
+    approved = send_message_and_wait_for_approval(message)
+
     if approved:
         print("[Step 5] ✅ Schedule approved by operator")
     else:
