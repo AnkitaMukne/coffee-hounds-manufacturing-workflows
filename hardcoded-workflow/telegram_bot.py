@@ -30,7 +30,7 @@ def wait_for_latest_message_to_be_approve_or_disapprove() -> bool:
                 return False
             elif "approve" in message.lower():
                 print("Received approval message.")
-                return False
+                return True
 
         time.sleep(0.5)  # Sleep briefly to avoid busy waiting
     print("No approval or disapproval message received.")
