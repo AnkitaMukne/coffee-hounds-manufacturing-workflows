@@ -484,8 +484,28 @@ def step6_advance_production(
 
             # Complete the phase
             try:
+                # Fetch phase details to check if it's the final phase
+                phase_resp = client.get(f"{BASE_URL}/api/product/production-order-phase/{phase.id}")
+                phase_resp.raise_for_status()
+                phase_data = phase_resp.json()
+                is_final = phase_data.get("is_final", False)
+
+                # Build completion request body
+                completion_body = {
+                    "raw_material_inventory": [],
+                    "skip_consumption": False,
+                }
+
+                # If final phase, include completed quantity
+                if is_final:
+                    completion_body["completed"] = po.sales_order.quantity
+                    print(
+                        f"      ℹ️  Final phase - including completed quantity: {po.sales_order.quantity}"
+                    )
+
                 resp = client.post(
-                    f"{BASE_URL}/api/product/production-order-phase/{phase.id}/_complete"
+                    f"{BASE_URL}/api/product/production-order-phase/{phase.id}/_complete",
+                    json=completion_body,
                 )
                 resp.raise_for_status()
                 print(f"      ✅ Phase completed")
