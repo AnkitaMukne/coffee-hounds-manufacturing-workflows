@@ -41,6 +41,9 @@ def main() -> None:
         # Step 2: Choose a planning policy (pure reasoning, no API calls)
         production_plan = step2_choose_planning_policy(sales_orders)
 
+        print("Early exit after Step 2 for testing without state-altering Arke API calls.")
+        exit()
+
         # Step 3: Create production orders in Arke
         production_orders = step3_create_production_orders(client, production_plan)
 
