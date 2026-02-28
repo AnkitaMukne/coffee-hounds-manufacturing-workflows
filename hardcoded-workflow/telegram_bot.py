@@ -12,7 +12,13 @@ BOT = Bot(token=TELEGRAM_BOT_TOKEN)
 def send_message_and_wait_for_approval(text: str) -> bool:
     """Send a message to the Telegram bot and wait for an approval or disapproval response."""
     asyncio.run(send_bot_message_async(text))
-    return wait_for_latest_message_to_be_approve_or_disapprove()
+    approved = wait_for_latest_message_to_be_approve_or_disapprove()
+    asyncio.run(
+        send_bot_message_async(
+            f"Thank you for your response! Response recorded as {'approved' if approved else 'disapproved'}."
+        )
+    )
+    return approved
 
 
 def wait_for_latest_message_to_be_approve_or_disapprove() -> bool:
