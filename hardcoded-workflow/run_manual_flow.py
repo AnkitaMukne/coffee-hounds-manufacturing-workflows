@@ -100,9 +100,9 @@ def build_product_mapping(client: httpx.Client) -> Dict[str, str]:
 
     mapping = {}
     for p in products:
-        product_id = p.get('id')
-        name = p.get('name')
-        internal_id = p.get('internal_id')
+        product_id = p.get("id")
+        name = p.get("name")
+        internal_id = p.get("internal_id")
 
         if name and product_id:
             mapping[name] = product_id
@@ -118,7 +118,9 @@ def build_product_mapping(client: httpx.Client) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def step1_read_open_orders(client: httpx.Client, product_mapping: Dict[str, str]) -> List[SalesOrder]:
+def step1_read_open_orders(
+    client: httpx.Client, product_mapping: Dict[str, str]
+) -> List[SalesOrder]:
     """
     Step 1: Read open orders — show what needs to be produced
 
@@ -166,7 +168,9 @@ def step1_read_open_orders(client: httpx.Client, product_mapping: Dict[str, str]
                 )
             )
             if not orders[-1].product_id or orders[-1].product_id not in product_mapping.values():
-                print(f"⚠️ Warning: Could not resolve product_id for '{product_name}' (got: {product_id})")
+                print(
+                    f"⚠️ Warning: Could not resolve product_id for '{product_name}' (got: {product_id})"
+                )
 
     # EDF: nearest deadline first, ties broken by priority (lower = more urgent)
     orders.sort(key=lambda o: (o.deadline, o.priority))
@@ -423,13 +427,13 @@ def confirm_production_orders(
     """
     Confirm production orders in Arke after human approval.
 
-    POST /api/product/production/{id}/_confirm
+    POST /api/product/production/{id}/_start
 
-    Moves order to in_progress; first phase becomes ready_to_start.
+    Moves order from scheduled to in_progress; first phase becomes ready_to_start.
     """
-    print("\n[Arke] Confirming production orders...")
-    for po in tqdm(production_orders, desc="Confirming orders"):
-        resp = client.post(f"{BASE_URL}/api/product/production/{po.production_order_id}/_confirm")
+    print("\n[Arke] Starting production orders...")
+    for po in tqdm(production_orders, desc="Starting orders"):
+        resp = client.post(f"{BASE_URL}/api/product/production/{po.production_order_id}/_start")
         resp.raise_for_status()
         print(f"  ✅ {po.sales_order.internal_id} → in_progress")
 
