@@ -133,7 +133,7 @@ def step1_read_open_orders(
     GET /api/sales/order?status=accepted
     GET /api/sales/order/{id}
     """
-    resp = client.get(f"{BASE_URL}/api/sales/order", params={"status": "accepted"})
+    resp = client.get(f"{BASE_URL}/api/sales/order", params={"status": "accepted", "limit": 1000})
     resp.raise_for_status()
     summaries: List[Dict] = resp.json()
 
