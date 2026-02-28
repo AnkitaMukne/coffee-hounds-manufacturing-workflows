@@ -6,13 +6,15 @@ CHAT_ID = '-1003833527945'
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
+
 async def read():
 
-    #Create bot object
+    message_stack = []
     
 
     #Get updates
     updates = await bot.get_updates()
+    
 
     if not updates:
         print("No updates found")
@@ -27,9 +29,9 @@ async def read():
                 #chat_id = update.message.chat.id
                 #chat_title = update.message.chat.title
                 message_text = update.message.text
-                
-        print(f"Message: {message_text}")
-asyncio.run(read())
+                message_stack.append(message_text)
+        #print(f"Message: {message_text}")
+    return message_stack
 
 
 
@@ -42,10 +44,12 @@ async def run_bot(messages, chat_id):
     text = '\n'.join(messages)
     await send_message(text, chat_id)
 
-#Test messages
-messages = [
-    'Hello from Python! Live long and prosper.'
-]
 
-if messages:
-    asyncio.run(run_bot(messages, CHAT_ID))
+
+    
+if __name__ == "__main__":
+    messages = [
+        'Hello from Python! Live long and prosper.'
+    ]
+    asyncio.run(run_bot(messages, CHAT_ID))  #To send messages to the Telegram channel
+    asyncio.run(read())                      #Reads messages from Telegram if any and returns them in a list
