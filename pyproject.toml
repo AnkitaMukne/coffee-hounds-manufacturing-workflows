@@ -25,7 +25,7 @@ line-length = 100
 [tool.isort]
 profile = "black"
 line_length = 100
-known_local_folder = ["utils", "constants", "models"]
+known_local_folder = ["utils", "constants", "models", "arke_client", "data_extraction", "data_loaders", "scheduling", "phase_executor"]
 
 [build-system]
 requires = ["poetry-core"]
