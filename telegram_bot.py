@@ -4,10 +4,12 @@ from telegram import Bot
 TELEGRAM_BOT_TOKEN = '8391945774:AAGCryNT_t-ePLJcFI2lrNZTqVm8gBH9RQk'
 CHAT_ID = '-1003833527945'
 
-async def main():
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
+
+async def read():
 
     #Create bot object
-    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    
 
     #Get updates
     updates = await bot.get_updates()
@@ -27,9 +29,10 @@ async def main():
                 message_text = update.message.text
                 
         print(f"Message: {message_text}")
-asyncio.run(main())
+asyncio.run(read())
 
-'''bot = Bot(token=TELEGRAM_BOT_TOKEN)
+
+
 
 async def send_message(text, chat_id):
     async with bot:
@@ -41,8 +44,8 @@ async def run_bot(messages, chat_id):
 
 #Test messages
 messages = [
-    'Hello from Python! Live long and prosper.',
+    'Hello from Python! Live long and prosper.'
 ]
 
 if messages:
-    asyncio.run(run_bot(messages, CHAT_ID))'''
+    asyncio.run(run_bot(messages, CHAT_ID))
