@@ -14,9 +14,9 @@ from typing import Dict, List, Optional
 import httpx
 from tqdm import tqdm
 
-from .constants import BASE_URL, BOM_MINS_PER_UNIT, MINS_PER_DAY, PASSWORD, TODAY, USERNAME
-from .models import Phase, ProductionOrder, SalesOrder
-from .utils import infer_product_code, parse_deadline
+from constants import BASE_URL, BOM_MINS_PER_UNIT, MINS_PER_DAY, PASSWORD, TODAY, USERNAME
+from models import Phase, ProductionOrder, SalesOrder
+from utils import infer_product_code, parse_deadline
 
 # ---------------------------------------------------------------------------
 # Main

@@ -17,6 +17,14 @@ pydantic = "^2.12.5"
 black = "^24.10.0"
 isort = "^5.13.2"
 
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_local_folder = ["utils", "constants", "models"]
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

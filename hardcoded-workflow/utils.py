@@ -4,7 +4,7 @@ Utility functions for NovaBoard Electronics Production Scheduling Agent.
 
 from datetime import datetime
 
-from .constants import PRODUCT_NAME_TO_CODE
+from constants import PRODUCT_NAME_TO_CODE
 
 
 def infer_product_code(product_name: str) -> str:
