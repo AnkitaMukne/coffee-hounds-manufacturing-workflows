@@ -27,6 +27,3 @@ ARKE_PASSWORD = _get_required_env("ARKE_PASSWORD")
 
 # Gemini API Configuration
 GEMINI_API_KEY = _get_required_env("GEMINI_API_KEY")
-
-#Batch Size in Policy Planning
-BATCH_SIZE=int(_get_required_env("BATCH_SIZE"))
