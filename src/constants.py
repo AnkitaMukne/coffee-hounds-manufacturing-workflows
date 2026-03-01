@@ -4,19 +4,9 @@ Configuration constants for NovaBoard Electronics Production Scheduling Agent.
 
 from datetime import datetime, timezone
 
-# API Configuration
-BASE_URL = "https://hackathon33.arke.so"
-USERNAME = "arke"
-PASSWORD = "arke"
-
 # Scheduling Configuration
 TODAY = datetime.now(timezone.utc)
 MINS_PER_DAY = 480
-
-# Telegram Configuration
-TELEGRAM_BOT_TOKEN = "8391945774:AAGCryNT_t-ePLJcFI2lrNZTqVm8gBH9RQk"
-TELEGRAM_CHAT_ID = "-1003833527945"
-TELEGRAM_POLL_TIMEOUT = 600  # 10 minutes in seconds
 
 # BOM: total minutes per unit, keyed by product code
 # Source: mission briefing (SMT + Reflow + THT + AOI + Test + Coating + Pack)
