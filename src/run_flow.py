@@ -455,14 +455,33 @@ def step4_schedule_phases(
             phase_end = phase_cursor + timedelta(days=phase_days)
             phase_cursor = phase_end
 
-            client.post(
-                f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_starting_date",
-                json={"starting_date": format_utc_datetime(phase_start)},
-            )
-            client.post(
-                f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_ending_date",
-                json={"ending_date": format_utc_datetime(phase_end)},
-            )
+            # Update end date
+            try:
+                body = {"ends_at": format_utc_datetime(phase_end)}
+                response = client.post(
+                    f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_ending_date",
+                    json=body,
+                )
+                response.raise_for_status()
+            except:
+                print(f"⚠️ Warning: Failed to update ending date for phase {phase_id}")
+                print(
+                    f"      Response status: {response.status_code}, request {body}, response: {response.text}"
+                )
+
+            # Update start date
+            try:
+                body = {"starts_at": format_utc_datetime(phase_start)}
+                response = client.post(
+                    f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_starting_date",
+                    json=body,
+                )
+                response.raise_for_status()
+            except:
+                print(f"⚠️ Warning: Failed to update starting date for phase {phase_id}")
+                print(
+                    f"      Response status: {response.status_code}, request {body}, response {response.text}"
+                )
 
             phases.append(
                 Phase(
