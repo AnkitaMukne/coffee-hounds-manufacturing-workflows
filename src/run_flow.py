@@ -67,17 +67,16 @@ def main() -> None:
 
         # Step 5: Human-in-the-loop — present schedule and get approval
         approved, modification_instructions = step5_get_human_approval(
-            production_orders, conflict_message=conflict_message
+            production_orders, conflict_message=conflict_message if conflict_message else None
         )
 
         if modification_instructions:
-            # TODO use LLMExecutor().modify_production_orders(production_orders, modification_instructions)
-            # adjust the schedule with step4_schedule_phases, then re-present to the operator for approval and loop until approved or rejected
-            raise NotImplementedError(
-                "Modification instructions from operator not yet implemented. Received instructions: {modification_instructions}"
-            )
+            print("[Step 5*] Modifying schedule based on operator instructions with LLM...")
+            with LLMExecutor() as llm:
+                production_orders = llm.modify_production_orders(modification_instructions, production_orders)
+            print("Moving to Step 4 to update Arke with modified schedule and re-request operator approval...")
 
-        if not approved:
+        elif not approved:
             print("\n[abort] Operator did not approve. Exiting.")
             return
 

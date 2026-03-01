@@ -2,7 +2,7 @@ import json
 import math
 from datetime import timedelta
 from functools import cache
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import httpx
 from pydantic import BaseModel, Field
@@ -14,19 +14,6 @@ from models import ProductionOrder
 # ---------------------------------------------------------------------------
 # Pydantic models for Gemini response parsing
 # ---------------------------------------------------------------------------
-
-
-class ConflictPair(BaseModel):
-    displaced_order_id: str  # internal_id of the order that loses its slot
-    jumping_order_id: str  # internal_id of the order that jumped due to priority
-    explanation: str  # human-readable explanation of why this is a conflict
-    resolution: str  # what EDF does to resolve it
-
-
-class ConflictReport(BaseModel):
-    conflict_detected: bool
-    pairs: list[ConflictPair] = Field(default_factory=list)
-    operator_message: str  # full plain-text message to send via Telegram
 
 
 class ScheduleOperation(BaseModel):
@@ -73,20 +60,11 @@ class LLMExecutor:
         schedule_json = _serialize_schedule(production_orders)
         prompt = _conflict_detection_prompt(schedule_json)
 
-        raw = self._conflict_gemini_call(prompt)
-        report = ConflictReport.model_validate(raw)
+        operator_message = self._conflict_gemini_call(prompt)
 
-        # Log detected pairs
-        if report.conflict_detected:
-            for pair in report.pairs:
-                print(
-                    f"[conflict] {pair.displaced_order_id} displaced by {pair.jumping_order_id}: "
-                    f"{pair.explanation}"
-                )
-        else:
-            print("[conflict] No conflicts detected.")
+        print(f"[conflict] {operator_message}")
 
-        return production_orders, report.operator_message
+        return production_orders, operator_message
 
     def modify_production_orders(
         self,
@@ -125,12 +103,12 @@ class LLMExecutor:
         self._client.close()
 
     @cache
-    def _conflict_gemini_call(self, prompt: str) -> Dict:
+    def _conflict_gemini_call(self, prompt: str) -> str:
         """
-        Cached version of Gemini call.
-        Caches based on the prompt string, so identical prompts will return the same response.
+        Cached version of Gemini call for conflict detection.
+        Returns plain text operator message.
         """
-        return self._call_gemini(prompt, response_schema=ConflictReport.model_json_schema())
+        return self._call_gemini(prompt)
 
     @cache
     def _modify_gemini_call(self, prompt: str) -> Dict:
@@ -144,19 +122,24 @@ class LLMExecutor:
     # Internal: Gemini call
     # ------------------------------------------------------------------
 
-    def _call_gemini(self, prompt: str, response_schema: Dict) -> Dict:
+    def _call_gemini(self, prompt: str, response_schema: Optional[Dict] = None) -> str | Dict:
         """
         POST to Gemini generateContent with JSON response mode.
-        Returns parsed dict ready for Pydantic validation.
+        Returns parsed dict for schema-based responses, or plain string otherwise.
         """
         # Gemini doesn't support $ref/$defs, so inline nested schemas
-        gemini_schema = _inline_schema_refs(response_schema)
+        if response_schema:
+            gemini_schema = _inline_schema_refs(response_schema)
+            mime_type = "application/json"
+        else:
+            gemini_schema = {"type": "string"}
+            mime_type = "text/plain"
 
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
                 "temperature": 0,
-                "responseMimeType": "application/json",
+                "responseMimeType": mime_type,
                 "responseSchema": gemini_schema,
             },
         }
@@ -174,7 +157,11 @@ class LLMExecutor:
 
         # Gemini wraps the response in candidates[0].content.parts[0].text
         text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return json.loads(text)
+
+        if response_schema:
+            return json.loads(text)
+        else:
+            return text
 
 
 # ---------------------------------------------------------------------------
@@ -197,17 +184,16 @@ A CONFLICT exists when:
     order would jump ahead and cause the displaced order to MISS its deadline.
   - If any order currently misses its deadline in the EDF schedule.
 
-Your tasks:
-1. Identify all conflicts.
-2. Write a clear, concise operator_message in plain text suitable for Telegram
-   Do not expect markdown rendering, do not use newlines. Use emojis sparingly.
-   Explain any conflicts found and why they exist even using EDF.
-3. If no conflicts exist, say so briefly.
+Your task:
+Write a clear, concise message in plain text suitable for Telegram.
+Do not use markdown formatting or newlines. Use emojis sparingly.
+Explain any conflicts found and why they exist even using EDF.
+If no conflicts exist, say so briefly.
 
 Current EDF schedule (JSON):
 {schedule_json}
 
-Respond strictly according to the provided JSON schema.
+Respond with a plain text message only.
 """.strip()
 
 
