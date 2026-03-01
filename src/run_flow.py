@@ -19,7 +19,7 @@ from llm_executor import LLMExecutor
 from telegram_bot import send_message, send_messages_and_wait_for_approval
 
 from constants import BOM_MINS_PER_UNIT, MINS_PER_DAY, TODAY
-from environment import ARKE_PASSWORD, ARKE_TENANT, ARKE_USERNAME, BATCH_SIZE
+from environment import ARKE_PASSWORD, ARKE_TENANT, ARKE_USERNAME
 from models import Phase, ProductionOrder, SalesOrder
 from utils import format_utc_datetime, infer_product_code, parse_deadline
 
@@ -294,40 +294,21 @@ def step2_choose_planning_policy(sales_orders: List[SalesOrder]) -> List[Product
     print("\n[Step 2] Applying Earliest Deadline First (EDF) policy...")
 
     production_orders: List[ProductionOrder] = []
-
-    # Batch-splitting policy: split large orders into batches of at most `BATCH_SIZE`
-    # units. Each batch inherits the original sales order's deadline as `ends_at`.
-    # Batches for a single sales order are scheduled backwards from the deadline
-    # so they complete by the requested shipping date.
+    cursor = TODAY
 
     for so in sales_orders:
         mins_per_unit = BOM_MINS_PER_UNIT.get(so.product_code, 60)
+        total_mins = mins_per_unit * so.quantity
+        days_needed = math.ceil(total_mins / MINS_PER_DAY)
 
-        remaining = so.quantity
-        # schedule batches so that the last batch finishes at the sales order deadline
-        current_end = so.deadline
+        starts_at = cursor
+        ends_at = cursor + timedelta(days=days_needed)
+        cursor = ends_at
 
-        while remaining > 0:
-            batch_qty = min(BATCH_SIZE, remaining)
+        po = ProductionOrder(sales_order=so, starts_at=starts_at, ends_at=ends_at)
+        production_orders.append(po)
 
-            total_mins = mins_per_unit * batch_qty
-            days_needed = math.ceil(total_mins / MINS_PER_DAY)
-
-            # Each batch ends at the original order deadline (or the current_end
-            # when scheduling multiple batches backwards). Start is computed from end.
-            ends_at = current_end
-            starts_at = ends_at - timedelta(days=days_needed)
-
-            po = ProductionOrder(sales_order=so, starts_at=starts_at, ends_at=ends_at)
-            production_orders.append(po)
-
-            remaining -= batch_qty
-            # next (earlier) batch should end when this batch starts
-            current_end = starts_at
-
-    print(
-        f"\n[Step 2] EDF schedule computed ({len(production_orders)} production orders after splitting into batches of {BATCH_SIZE}):"
-    )
+    print(f"\n[Step 2] EDF schedule computed ({len(production_orders)} production orders):")
     for po in production_orders:
         so = po.sales_order
         flag = "OK" if po.on_time else "LATE"
@@ -644,7 +625,6 @@ def step6_advance_production(
     """
     print("\n[Step 6] Advancing production phases...")
     print("  Camera started...verifying phase completion...")
-    all_works = True
 
     for po in production_orders:
         print(f"\n  {po.sales_order.internal_id} (PO: {po.production_order_id}):")
@@ -671,7 +651,6 @@ def step6_advance_production(
                 send_message(
                     f"Phase '{phase.name}' for sales order {po.sales_order.internal_id} failed visual verification. Please investigate and resolve."
                 )
-                all_works = False
                 break
 
             # Complete the phase
@@ -716,8 +695,7 @@ def step6_advance_production(
                 )
                 break
 
-    if all_works:
-        send_message("\nAll phases have been advanced (started and completed) 🎉")
+    send_message("\nAll phases have been advanced (started and completed) 🎉")
 
 
 # ---------------------------------------------------------------------------

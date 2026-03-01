@@ -32,6 +32,3 @@ GEMINI_API_URL = os.getenv(
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
 )
 GEMINI_CALL_TIMEOUT = int(os.getenv("GEMINI_CALL_TIMEOUT", "120"))
-
-# Batch Size in Policy Planning
-BATCH_SIZE = int(_get_required_env("BATCH_SIZE"))
