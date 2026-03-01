@@ -15,10 +15,11 @@ import httpx
 from tqdm import tqdm
 
 from camera_verify import validate_phase_completion_visually
-from environment import ARKE_PASSWORD, ARKE_TENANT, ARKE_USERNAME
+from llm_executor import LLMExecutor
 from telegram_bot import send_message, send_message_and_wait_for_approval
 
 from constants import BOM_MINS_PER_UNIT, MINS_PER_DAY, TODAY
+from environment import ARKE_PASSWORD, ARKE_TENANT, ARKE_USERNAME
 from models import Phase, ProductionOrder, SalesOrder
 from utils import format_utc_datetime, infer_product_code, parse_deadline
 

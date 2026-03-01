@@ -27,3 +27,7 @@ ARKE_PASSWORD = _get_required_env("ARKE_PASSWORD")
 
 # Gemini API Configuration
 GEMINI_API_KEY = _get_required_env("GEMINI_API_KEY")
+GEMINI_API_URL = os.getenv(
+    "GEMINI_API_URL",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+)

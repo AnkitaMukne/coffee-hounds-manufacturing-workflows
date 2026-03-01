@@ -26,7 +26,7 @@ line-length = 100
 [tool.isort]
 profile = "black"
 line_length = 100
-known_local_folder = ["utils", "constants", "models"]
+known_local_folder = ["utils", "constants", "models", "environment"]
 
 [build-system]
 requires = ["poetry-core"]
