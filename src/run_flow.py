@@ -621,6 +621,7 @@ def step6_advance_production(
     """
     print("\n[Step 6] Advancing production phases...")
     print("  Camera started...verifying phase completion...")
+    all_works = True
 
     for po in production_orders:
         print(f"\n  {po.sales_order.internal_id} (PO: {po.production_order_id}):")
