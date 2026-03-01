@@ -281,7 +281,7 @@ def step2_choose_planning_policy(sales_orders: List[SalesOrder]) -> List[Product
     # units. Each batch inherits the original sales order's deadline as `ends_at`.
     # Batches for a single sales order are scheduled backwards from the deadline
     # so they complete by the requested shipping date.
-
+    
 
     for so in sales_orders:
         mins_per_unit = BOM_MINS_PER_UNIT.get(so.product_code, 60)
@@ -308,7 +308,7 @@ def step2_choose_planning_policy(sales_orders: List[SalesOrder]) -> List[Product
             # next (earlier) batch should end when this batch starts
             current_end = starts_at
 
-    print(f"\n[Step 2] EDF schedule computed ({len(production_orders)} production orders after splitting into batches of {BATCH_SIZE}):")
+    print(f"\n[Step 2] EDF schedule computed ({len(production_orders)} production orders):")
     for po in production_orders:
         so = po.sales_order
         flag = "OK" if po.on_time else "LATE"
@@ -693,9 +693,9 @@ def step6_advance_production(
                 )
                 break
 
-    if all_works:
-        send_message("\nAll phases have been advanced (started and completed) 🎉")
-
+            if all_works:
+                send_message("\nAll phases have been advanced (started and completed) 🎉")
+    
 
 # ---------------------------------------------------------------------------
 # Product Details Cache
