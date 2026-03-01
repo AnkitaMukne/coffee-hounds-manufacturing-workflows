@@ -2,7 +2,7 @@ import json
 import math
 from datetime import timedelta
 from functools import cache
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
 import httpx
 from pydantic import BaseModel, Field

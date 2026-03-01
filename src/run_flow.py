@@ -65,20 +65,31 @@ def main() -> None:
         # Step 4: Schedule phases with concrete start/end dates
         production_orders = step4_schedule_phases(client, production_orders, product_details_cache)
 
-        # Step 5: Human-in-the-loop — present schedule and get approval
-        approved, modification_instructions = step5_get_human_approval(
-            production_orders, conflict_message=conflict_message if conflict_message else None
-        )
+        modification_instructions = "dummy"
 
-        if modification_instructions:
-            print("[Step 5*] Modifying schedule based on operator instructions with LLM...")
-            with LLMExecutor() as llm:
-                production_orders = llm.modify_production_orders(modification_instructions, production_orders)
-            print("Moving to Step 4 to update Arke with modified schedule and re-request operator approval...")
+        while modification_instructions:
+            # Step 5: Human-in-the-loop — present schedule and get approval
+            approved, modification_instructions = step5_get_human_approval(
+                production_orders, conflict_message=conflict_message if conflict_message else None
+            )
 
-        elif not approved:
-            print("\n[abort] Operator did not approve. Exiting.")
-            return
+            if modification_instructions:
+                print("[Step 5*] Modifying schedule based on operator instructions with LLM...")
+                with LLMExecutor() as llm:
+                    production_orders = llm.modify_production_orders(
+                        modification_instructions, production_orders
+                    )
+                print(
+                    "Moving to Step 4* to update Arke with modified schedule and re-request operator approval..."
+                )
+                production_orders = step4_schedule_phases(
+                    client, production_orders, product_details_cache, retry=True
+                )
+                conflict_message = "Schedule modified based on operator instructions. Please review the updated schedule below."
+
+            elif not approved:
+                print("\n[abort] Operator did not approve. Exiting.")
+                return
 
         # Confirm orders in Arke (moves to in_progress, first phase ready_to_start)
         confirm_production_orders(client, production_orders)
@@ -375,6 +386,7 @@ def step4_schedule_phases(
     client: httpx.Client,
     production_orders: List[ProductionOrder],
     product_details_cache: Dict[str, Dict],
+    retry: bool = False,
 ) -> List[ProductionOrder]:
     """
     Step 4: Schedule phases with concrete start/end dates
@@ -397,11 +409,12 @@ def step4_schedule_phases(
 
     updated: List[ProductionOrder] = []
     for po in tqdm(production_orders, desc="Scheduling phases"):
-        # 1. Generate phase sequence from BOM
-        resp = client.post(
-            f"{ARKE_TENANT}/api/product/production/{po.production_order_id}/_schedule"
-        )
-        resp.raise_for_status()
+        if not retry:
+            # 1. Generate phase sequence from BOM
+            resp = client.post(
+                f"{ARKE_TENANT}/api/product/production/{po.production_order_id}/_schedule"
+            )
+            resp.raise_for_status()
 
         # 2. Get phases with phase names
         resp = client.get(f"{ARKE_TENANT}/api/product/production/{po.production_order_id}")
@@ -472,33 +485,56 @@ def step4_schedule_phases(
             phase_end = phase_cursor + timedelta(days=phase_days)
             phase_cursor = phase_end
 
-            # Update end date
             try:
-                body = {"ends_at": format_utc_datetime(phase_end)}
-                response = client.post(
-                    f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_ending_date",
-                    json=body,
-                )
-                response.raise_for_status()
-            except:
-                print(f"⚠️ Warning: Failed to update ending date for phase {phase_id}")
-                print(
-                    f"      Response status: {response.status_code}, request {body}, response: {response.text}"
-                )
 
-            # Update start date
-            try:
+                # Update end date
+                try:
+                    body = {"ends_at": format_utc_datetime(phase_end)}
+                    response = client.post(
+                        f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_ending_date",
+                        json=body,
+                    )
+                    response.raise_for_status()
+                except:
+                    print(f"⚠️ Warning: Failed to update ending date for phase {phase_id}")
+                    print(
+                        f"      Response status: {response.status_code}, request {body}, response: {response.text}"
+                    )
+                    raise
+
+                # Update start date
+                try:
+                    body = {"starts_at": format_utc_datetime(phase_start)}
+                    response = client.post(
+                        f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_starting_date",
+                        json=body,
+                    )
+                    response.raise_for_status()
+                except:
+                    print(f"⚠️ Warning: Failed to update starting date for phase {phase_id}")
+                    print(
+                        f"      Response status: {response.status_code}, request {body}, response {response.text}"
+                    )
+                    raise
+
+            except:
+                # Try the other way around
+                print(
+                    f"⚠️ Attempting to update start date first for phase {phase_id} due to previous failure..."
+                )
                 body = {"starts_at": format_utc_datetime(phase_start)}
                 response = client.post(
                     f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_starting_date",
                     json=body,
                 )
                 response.raise_for_status()
-            except:
-                print(f"⚠️ Warning: Failed to update starting date for phase {phase_id}")
-                print(
-                    f"      Response status: {response.status_code}, request {body}, response {response.text}"
+
+                body = {"ends_at": format_utc_datetime(phase_end)}
+                response = client.post(
+                    f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_ending_date",
+                    json=body,
                 )
+                response.raise_for_status()
 
             phases.append(
                 Phase(
@@ -625,6 +661,8 @@ def step6_advance_production(
     print("\n[Step 6] Advancing production phases...")
     print("  Camera started...verifying phase completion...")
 
+    all_worked = True
+
     for po in production_orders:
         print(f"\n  {po.sales_order.internal_id} (PO: {po.production_order_id}):")
         for phase in po.phases:
@@ -650,6 +688,7 @@ def step6_advance_production(
                 send_message(
                     f"Phase '{phase.name}' for sales order {po.sales_order.internal_id} failed visual verification. Please investigate and resolve."
                 )
+                all_worked = False
                 break
 
             # Complete the phase
@@ -694,7 +733,8 @@ def step6_advance_production(
                 )
                 break
 
-    send_message("\nAll phases have been advanced (started and completed) 🎉")
+    if all_worked:
+        send_message("\nAll phases have been advanced (started and completed) 🎉")
 
 
 # ---------------------------------------------------------------------------
