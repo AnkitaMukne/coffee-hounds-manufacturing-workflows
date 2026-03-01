@@ -140,11 +140,10 @@ class ArkeClient:
             phase_id: Phase ID
             starting_date: Start datetime in ISO format
         """
-        resp = self.client.post(
+        self.client.post(
             f"{self.base_url}/api/product/production-order-phase/{phase_id}/_update_starting_date",
             json={"starting_date": starting_date},
         )
-        resp.raise_for_status()
 
     def update_phase_ending_date(self, phase_id: str, ending_date: str) -> None:
         """
@@ -154,11 +153,10 @@ class ArkeClient:
             phase_id: Phase ID
             ending_date: End datetime in ISO format
         """
-        resp = self.client.post(
+        self.client.post(
             f"{self.base_url}/api/product/production-order-phase/{phase_id}/_update_ending_date",
             json={"ending_date": ending_date},
         )
-        resp.raise_for_status()
 
     def start_production_order(self, production_order_id: str) -> None:
         """
