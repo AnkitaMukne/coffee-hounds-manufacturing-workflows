@@ -15,7 +15,7 @@ import httpx
 from tqdm import tqdm
 
 from camera_verify import validate_phase_completion_visually
-from environment import ARKE_PASSWORD, ARKE_TENANT, ARKE_USERNAME
+from environment import ARKE_PASSWORD, ARKE_TENANT, ARKE_USERNAME, BATCH_SIZE
 from telegram_bot import send_message, send_message_and_wait_for_approval
 
 from constants import BOM_MINS_PER_UNIT, MINS_PER_DAY, TODAY
@@ -276,19 +276,37 @@ def step2_choose_planning_policy(sales_orders: List[SalesOrder]) -> List[Product
     print("\n[Step 2] Applying Earliest Deadline First (EDF) policy...")
 
     production_orders: List[ProductionOrder] = []
-    cursor = TODAY
+
+    # Batch-splitting policy: split large orders into batches of at most `BATCH_SIZE`
+    # units. Each batch inherits the original sales order's deadline as `ends_at`.
+    # Batches for a single sales order are scheduled backwards from the deadline
+    # so they complete by the requested shipping date.
+    
 
     for so in sales_orders:
         mins_per_unit = BOM_MINS_PER_UNIT.get(so.product_code, 60)
-        total_mins = mins_per_unit * so.quantity
-        days_needed = math.ceil(total_mins / MINS_PER_DAY)
 
-        starts_at = cursor
-        ends_at = cursor + timedelta(days=days_needed)
-        cursor = ends_at
+        remaining = so.quantity
+        # schedule batches so that the last batch finishes at the sales order deadline
+        current_end = so.deadline
 
-        po = ProductionOrder(sales_order=so, starts_at=starts_at, ends_at=ends_at)
-        production_orders.append(po)
+        while remaining > 0:
+            batch_qty = min(BATCH_SIZE, remaining)
+
+            total_mins = mins_per_unit * batch_qty
+            days_needed = math.ceil(total_mins / MINS_PER_DAY)
+
+            # Each batch ends at the original order deadline (or the current_end
+            # when scheduling multiple batches backwards). Start is computed from end.
+            ends_at = current_end
+            starts_at = ends_at - timedelta(days=days_needed)
+
+            po = ProductionOrder(sales_order=so, starts_at=starts_at, ends_at=ends_at)
+            production_orders.append(po)
+
+            remaining -= batch_qty
+            # next (earlier) batch should end when this batch starts
+            current_end = starts_at
 
     print(f"\n[Step 2] EDF schedule computed ({len(production_orders)} production orders):")
     for po in production_orders:
@@ -300,7 +318,6 @@ def step2_choose_planning_policy(sales_orders: List[SalesOrder]) -> List[Product
         )
 
     return production_orders
-
 
 # ---------------------------------------------------------------------------
 # Step 3 — Create production orders in Arke
@@ -604,6 +621,7 @@ def step6_advance_production(
     """
     print("\n[Step 6] Advancing production phases...")
     print("  Camera started...verifying phase completion...")
+    all_works = True
 
     for po in production_orders:
         print(f"\n  {po.sales_order.internal_id} (PO: {po.production_order_id}):")
@@ -630,6 +648,7 @@ def step6_advance_production(
                 send_message(
                     f"Phase '{phase.name}' for sales order {po.sales_order.internal_id} failed visual verification. Please investigate and resolve."
                 )
+                all_works = False
                 break
 
             # Complete the phase
@@ -674,8 +693,9 @@ def step6_advance_production(
                 )
                 break
 
-    send_message("\nAll phases have been advanced (started and completed) 🎉")
-
+            if all_works:
+                send_message("\nAll phases have been advanced (started and completed) 🎉")
+    
 
 # ---------------------------------------------------------------------------
 # Product Details Cache
