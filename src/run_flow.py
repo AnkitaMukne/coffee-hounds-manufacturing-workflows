@@ -9,14 +9,14 @@ API base: https://hackathon33.arke.so
 
 import math
 from datetime import timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 import httpx
 from tqdm import tqdm
 
 from camera_verify import validate_phase_completion_visually
 from llm_executor import LLMExecutor
-from telegram_bot import send_message, send_message_and_wait_for_approval
+from telegram_bot import send_message, send_messages_and_wait_for_approval
 
 from constants import BOM_MINS_PER_UNIT, MINS_PER_DAY, TODAY
 from environment import ARKE_PASSWORD, ARKE_TENANT, ARKE_USERNAME
@@ -52,6 +52,13 @@ def main() -> None:
         # Step 2: Choose a planning policy (pure reasoning, no API calls)
         production_plan = step2_choose_planning_policy(sales_orders)
 
+        # Conflict detection and resolution with LLM
+        print("\n[Step 2*] Checking for scheduling conflicts with LLM...")
+        with LLMExecutor() as llm:
+            production_plan, conflict_message = llm.detect_and_explain_and_resolve_conflict(
+                production_plan
+            )
+
         # Step 3: Create production orders in Arke
         production_orders = step3_create_production_orders(client, production_plan)
 
@@ -59,7 +66,17 @@ def main() -> None:
         production_orders = step4_schedule_phases(client, production_orders, product_details_cache)
 
         # Step 5: Human-in-the-loop — present schedule and get approval
-        approved = step5_get_human_approval(production_orders)
+        approved, modification_instructions = step5_get_human_approval(
+            production_orders, conflict_message=conflict_message
+        )
+
+        if modification_instructions:
+            # TODO use LLMExecutor().modify_production_orders(production_orders, modification_instructions)
+            # adjust the schedule with step4_schedule_phases, then re-present to the operator for approval and loop until approved or rejected
+            raise NotImplementedError(
+                "Modification instructions from operator not yet implemented. Received instructions: {modification_instructions}"
+            )
+
         if not approved:
             print("\n[abort] Operator did not approve. Exiting.")
             return
@@ -504,21 +521,21 @@ def step4_schedule_phases(
 # ---------------------------------------------------------------------------
 
 
-def step5_get_human_approval(production_orders: List[ProductionOrder]) -> bool:
+def step5_get_human_approval(
+    production_orders: List[ProductionOrder], conflict_message: Optional[str] = None
+) -> Tuple[bool, Optional[str]]:
     """
     Step 5: Human-in-the-loop — present schedule to production planner
 
     Send the proposed production schedule via messaging (Telegram, Slack, Discord).
     The message must include:
     1. Full ordered schedule with start/end dates per production order
-    2. EDF reasoning for SO-005: "SO-003 (deadline Mar 4) is scheduled before
-       SO-005 (deadline Mar 8) despite SO-005 being P1 — EDF prioritises
-       tighter deadlines. All deadlines are met."
+    2. Possibly a conflict warning if any orders are late or if LLM detected a conflict in Step 2*
 
     Wait for planner's response. If approved, proceed to confirm orders in Arke.
     If changes requested, adjust dates and re-present.
 
-    Returns: True if approved
+    Returns: True if approved, False if rejected, or (False, modification_instructions) if modification requested
     """
     print("\n[Step 5] Preparing schedule for human approval...")
 
@@ -544,14 +561,19 @@ def step5_get_human_approval(production_orders: List[ProductionOrder]) -> bool:
     # Wait for operator response
     print("\n[Step 5] Waiting for operator approval...")
 
-    approved = send_message_and_wait_for_approval(message)
+    messages = [message] + ([conflict_message] if conflict_message else [])
 
-    if approved:
+    approved, modification_instructions = send_messages_and_wait_for_approval(messages)
+
+    if modification_instructions:
+        print("\n[Step 5] Operator requested modifications with instructions:")
+        print(modification_instructions)
+    elif approved:
         print("[Step 5] ✅ Schedule approved by operator")
     else:
         print("[Step 5] ❌ Schedule rejected by operator")
 
-    return approved
+    return approved, modification_instructions
 
 
 # ---------------------------------------------------------------------------

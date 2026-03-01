@@ -7,7 +7,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from constants import BOM_MINS_PER_UNIT, MINS_PER_DAY, TODAY
-from environment import GEMINI_API_KEY, GEMINI_API_URL
+from environment import GEMINI_API_KEY, GEMINI_API_URL, GEMINI_CALL_TIMEOUT
 from models import ProductionOrder
 
 # ---------------------------------------------------------------------------
@@ -132,17 +132,28 @@ class LLMExecutor:
         POST to Gemini generateContent with JSON response mode.
         Returns parsed dict ready for Pydantic validation.
         """
+        # Gemini doesn't support $ref/$defs, so inline nested schemas
+        gemini_schema = _inline_schema_refs(response_schema)
+
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
                 "temperature": 0,
                 "responseMimeType": "application/json",
-                "responseSchema": response_schema,
+                "responseSchema": gemini_schema,
             },
         }
 
-        resp = self._client.post(GEMINI_API_URL, headers=self._headers, json=body)
-        resp.raise_for_status()
+        try:
+            resp = self._client.post(
+                GEMINI_API_URL, headers=self._headers, json=body, timeout=GEMINI_CALL_TIMEOUT
+            )
+            resp.raise_for_status()
+        except:
+            print(
+                f"[error] Gemini API call failed on request {body}: {resp.status_code} {resp.text}"
+            )
+            raise
 
         # Gemini wraps the response in candidates[0].content.parts[0].text
         text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -167,13 +178,13 @@ A CONFLICT exists when:
     the order scheduled after it.
   - If the schedule were sorted by priority instead of deadline, the high-priority
     order would jump ahead and cause the displaced order to MISS its deadline.
+  - If any order currently misses its deadline in the EDF schedule.
 
 Your tasks:
-1. Identify all such conflict pairs.
-2. For each pair, confirm that EDF resolves it correctly (both deadlines met).
-3. Write a clear, concise operator_message (plain text, suitable for Telegram)
-   that explains any conflicts found and confirms all deadlines are met.
-   If no conflicts exist, say so briefly.
+1. Identify all conflicts and warn about them.
+2. Write a clear, concise operator_message (plain text, suitable for Telegram)
+   that explains any conflicts found and why they exist even using EDF. Suggest possible solutions.
+3. If no conflicts exist, say so briefly.
 
 Current EDF schedule (JSON):
 {schedule_json}
@@ -330,3 +341,36 @@ def _recompute_schedule(production_orders: list[ProductionOrder]) -> list[Produc
         )
 
     return updated
+
+
+# ---------------------------------------------------------------------------
+# Schema transformation for Gemini compatibility
+# ---------------------------------------------------------------------------
+
+
+def _inline_schema_refs(schema: dict) -> dict:
+    """
+    Convert Pydantic JSON schema with $ref/$defs to inline format for Gemini.
+    Recursively replaces all $ref references with the actual definition.
+    """
+    defs = schema.get("$defs", {})
+
+    def resolve(obj):
+        if isinstance(obj, dict):
+            if "$ref" in obj:
+                # Extract the reference path (e.g., "#/$defs/ConflictPair")
+                ref_path = obj["$ref"].split("/")[-1]
+                if ref_path in defs:
+                    # Recursively resolve the definition itself
+                    return resolve(defs[ref_path].copy())
+                return obj
+            else:
+                return {k: resolve(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [resolve(item) for item in obj]
+        else:
+            return obj
+
+    # Start with the root schema, excluding $defs
+    result = {k: v for k, v in schema.items() if k != "$defs"}
+    return resolve(result)
