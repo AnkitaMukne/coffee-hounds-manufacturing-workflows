@@ -13,4 +13,4 @@
      - `ARKE_USERNAME`: Your Arke username
      - `ARKE_PASSWORD`: Your Arke password
      - `GEMINI_API_KEY`: Your Google Gemini API key
-4. Run manual flow: `poetry run python hardcoded-workflow/run_manual_flow.py`
+4. Run manual flow: `poetry run python src/run_manual_flow.py`
