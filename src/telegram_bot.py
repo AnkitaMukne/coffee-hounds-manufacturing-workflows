@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import List
+from typing import List, Optional, Tuple
 
 from telegram import Bot
 
@@ -9,16 +9,20 @@ from environment import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_POLL_TIME
 BOT = Bot(token=TELEGRAM_BOT_TOKEN)
 
 
-def send_message_and_wait_for_approval(text: str) -> bool:
+def send_messages_and_wait_for_approval(messages: List[str]) -> Tuple[bool, Optional[str]]:
     """Send a message to the Telegram bot and wait for an approval or disapproval response."""
-    asyncio.run(send_bot_message_async(text))
-    approved = wait_for_latest_message_to_be_approve_or_disapprove()
-    asyncio.run(
-        send_bot_message_async(
-            f"Thank you for your response! Response recorded as {'approved' if approved else 'disapproved'}."
-        )
-    )
-    return approved
+    for msg in messages:
+        asyncio.run(send_bot_message_async(msg))
+    response = wait_for_latest_message_to_be_approve_or_disapprove()
+    if "approve" in response.lower():
+        send_message("Action approved. Proceeding with the operation.")
+        return True, None
+    elif "disapprove" in response.lower():
+        send_message("Action disapproved. Aborting the operation.")
+        return False, None
+
+    send_message("Action modification requested. Retrying with modified instructions.")
+    return False, response
 
 
 def send_message(text: str) -> None:
@@ -26,10 +30,11 @@ def send_message(text: str) -> None:
     asyncio.run(send_bot_message_async(text))
 
 
-def wait_for_latest_message_to_be_approve_or_disapprove() -> bool:
+def wait_for_latest_message_to_be_approve_or_disapprove() -> str:
     print(
         f"Waiting for up to {TELEGRAM_POLL_TIMEOUT} seconds for approval or disapproval message..."
     )
+    send_message("Please respond with /approve, /disapprove, or /modify to indicate your decision.")
     start = time.time()
 
     while time.time() - start < TELEGRAM_POLL_TIMEOUT:
@@ -38,14 +43,17 @@ def wait_for_latest_message_to_be_approve_or_disapprove() -> bool:
         for message in messages:
             if "disapprove" in message.lower():
                 print("Received disapproval message.")
-                return False
+                return "disapprove"
             elif "approve" in message.lower():
                 print("Received approval message.")
-                return True
+                return "approve"
+            elif "modify" in message.lower():
+                print("Received modify message. Treating as disapproval for now.")
+                return message
 
         time.sleep(0.5)  # Sleep briefly to avoid busy waiting
-    print("No approval or disapproval message received.")
-    return False
+    print("No approval or disapproval message received; defaulting to disapprove")
+    return "disapprove"
 
 
 async def read_bot_messages_async(after_time: float) -> List[str]:
@@ -82,7 +90,7 @@ async def send_bot_message_async(text: str) -> None:
 if __name__ == "__main__":
     # Example usage
     print("Sending message and waiting for approval...")
-    approved = send_message_and_wait_for_approval(
+    approved = send_messages_and_wait_for_approval(
         "Hello from Python! Live long and prosper. Please approve or disapprove this action."
     )
     print(f"Approved: {approved}")
