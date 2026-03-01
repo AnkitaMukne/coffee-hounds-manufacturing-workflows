@@ -12,12 +12,13 @@ from datetime import timedelta
 from typing import Dict, List
 
 import httpx
-from camera_verify import validate_phase_completion_visually
-from telegram_bot import send_message, send_message_and_wait_for_approval
 from tqdm import tqdm
 
+from camera_verify import validate_phase_completion_visually
+from environment import ARKE_PASSWORD, ARKE_TENANT, ARKE_USERNAME
+from telegram_bot import send_message, send_message_and_wait_for_approval
+
 from constants import BOM_MINS_PER_UNIT, MINS_PER_DAY, TODAY
-from environment import ARKE_TENANT, ARKE_PASSWORD, ARKE_USERNAME
 from models import Phase, ProductionOrder, SalesOrder
 from utils import format_utc_datetime, infer_product_code, parse_deadline
 
@@ -78,7 +79,9 @@ def main() -> None:
 
 def login(client: httpx.Client) -> str:
     """POST /api/login -> Bearer token."""
-    resp = client.post(f"{ARKE_TENANT}/api/login", json={"username": ARKE_USERNAME, "password": ARKE_PASSWORD})
+    resp = client.post(
+        f"{ARKE_TENANT}/api/login", json={"username": ARKE_USERNAME, "password": ARKE_PASSWORD}
+    )
     resp.raise_for_status()
     token: str = resp.json()["accessToken"]
     print(f"[auth] OK — token: {token[:30]}...")
@@ -144,7 +147,9 @@ def step1_read_open_orders(
     GET /api/sales/order?status=accepted
     GET /api/sales/order/{id}
     """
-    resp = client.get(f"{ARKE_TENANT}/api/sales/order", params={"status": "accepted", "limit": 1000})
+    resp = client.get(
+        f"{ARKE_TENANT}/api/sales/order", params={"status": "accepted", "limit": 1000}
+    )
     resp.raise_for_status()
     summaries: List[Dict] = resp.json()
 
@@ -376,7 +381,9 @@ def step4_schedule_phases(
     updated: List[ProductionOrder] = []
     for po in tqdm(production_orders, desc="Scheduling phases"):
         # 1. Generate phase sequence from BOM
-        resp = client.post(f"{ARKE_TENANT}/api/product/production/{po.production_order_id}/_schedule")
+        resp = client.post(
+            f"{ARKE_TENANT}/api/product/production/{po.production_order_id}/_schedule"
+        )
         resp.raise_for_status()
 
         # 2. Get phases with phase names
@@ -585,7 +592,9 @@ def step6_advance_production(
             print(f"    • {phase.name} ({phase.id})")
 
             # Start the phase
-            resp = client.post(f"{ARKE_TENANT}/api/product/production-order-phase/{phase.id}/_start")
+            resp = client.post(
+                f"{ARKE_TENANT}/api/product/production-order-phase/{phase.id}/_start"
+            )
             resp.raise_for_status()
             print(f"      ✅ Phase started")
 
@@ -607,7 +616,9 @@ def step6_advance_production(
             # Complete the phase
             try:
                 # Fetch phase details to check if it's the final phase
-                phase_resp = client.get(f"{ARKE_TENANT}/api/product/production-order-phase/{phase.id}")
+                phase_resp = client.get(
+                    f"{ARKE_TENANT}/api/product/production-order-phase/{phase.id}"
+                )
                 phase_resp.raise_for_status()
                 phase_data = phase_resp.json()
 
