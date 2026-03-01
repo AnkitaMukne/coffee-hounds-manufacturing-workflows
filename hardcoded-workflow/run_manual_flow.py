@@ -16,7 +16,8 @@ from camera_verify import validate_phase_completion_visually
 from telegram_bot import send_message, send_message_and_wait_for_approval
 from tqdm import tqdm
 
-from constants import BASE_URL, BOM_MINS_PER_UNIT, MINS_PER_DAY, PASSWORD, TODAY, USERNAME
+from constants import BOM_MINS_PER_UNIT, MINS_PER_DAY, TODAY
+from environment import ARKE_TENANT, ARKE_PASSWORD, ARKE_USERNAME
 from models import Phase, ProductionOrder, SalesOrder
 from utils import format_utc_datetime, infer_product_code, parse_deadline
 
@@ -77,7 +78,7 @@ def main() -> None:
 
 def login(client: httpx.Client) -> str:
     """POST /api/login -> Bearer token."""
-    resp = client.post(f"{BASE_URL}/api/login", json={"username": USERNAME, "password": PASSWORD})
+    resp = client.post(f"{ARKE_TENANT}/api/login", json={"username": ARKE_USERNAME, "password": ARKE_PASSWORD})
     resp.raise_for_status()
     token: str = resp.json()["accessToken"]
     print(f"[auth] OK — token: {token[:30]}...")
@@ -98,7 +99,7 @@ def build_product_mapping(client: httpx.Client) -> Dict[str, str]:
     Returns: Dict with both name and internal_id as keys pointing to product_id
     """
     print("\n[Setup] Building product mapping...")
-    resp = client.get(f"{BASE_URL}/api/product/product")
+    resp = client.get(f"{ARKE_TENANT}/api/product/product")
     resp.raise_for_status()
     products = resp.json()
 
@@ -143,13 +144,13 @@ def step1_read_open_orders(
     GET /api/sales/order?status=accepted
     GET /api/sales/order/{id}
     """
-    resp = client.get(f"{BASE_URL}/api/sales/order", params={"status": "accepted", "limit": 1000})
+    resp = client.get(f"{ARKE_TENANT}/api/sales/order", params={"status": "accepted", "limit": 1000})
     resp.raise_for_status()
     summaries: List[Dict] = resp.json()
 
     orders: List[SalesOrder] = []
     for s in tqdm(summaries, desc="[Step 1] Fetching order details"):
-        detail_resp = client.get(f"{BASE_URL}/api/sales/order/{s['id']}")
+        detail_resp = client.get(f"{ARKE_TENANT}/api/sales/order/{s['id']}")
         detail_resp.raise_for_status()
         d: Dict = detail_resp.json()
 
@@ -330,7 +331,7 @@ def step3_create_production_orders(
             "ends_at": format_utc_datetime(po.ends_at),
         }
         resp = client.put(
-            f"{BASE_URL}/api/product/production",
+            f"{ARKE_TENANT}/api/product/production",
             json=body,
         )
         resp.raise_for_status()
@@ -375,11 +376,11 @@ def step4_schedule_phases(
     updated: List[ProductionOrder] = []
     for po in tqdm(production_orders, desc="Scheduling phases"):
         # 1. Generate phase sequence from BOM
-        resp = client.post(f"{BASE_URL}/api/product/production/{po.production_order_id}/_schedule")
+        resp = client.post(f"{ARKE_TENANT}/api/product/production/{po.production_order_id}/_schedule")
         resp.raise_for_status()
 
         # 2. Get phases with phase names
-        resp = client.get(f"{BASE_URL}/api/product/production/{po.production_order_id}")
+        resp = client.get(f"{ARKE_TENANT}/api/product/production/{po.production_order_id}")
         resp.raise_for_status()
         prod_data = resp.json()
 
@@ -448,11 +449,11 @@ def step4_schedule_phases(
             phase_cursor = phase_end
 
             client.post(
-                f"{BASE_URL}/api/product/production-order-phase/{phase_id}/_update_starting_date",
+                f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_starting_date",
                 json={"starting_date": format_utc_datetime(phase_start)},
             )
             client.post(
-                f"{BASE_URL}/api/product/production-order-phase/{phase_id}/_update_ending_date",
+                f"{ARKE_TENANT}/api/product/production-order-phase/{phase_id}/_update_ending_date",
                 json={"ending_date": format_utc_datetime(phase_end)},
             )
 
@@ -544,7 +545,7 @@ def confirm_production_orders(
     """
     print("\n[Arke] Starting production orders...")
     for po in tqdm(production_orders, desc="Starting orders"):
-        resp = client.post(f"{BASE_URL}/api/product/production/{po.production_order_id}/_start")
+        resp = client.post(f"{ARKE_TENANT}/api/product/production/{po.production_order_id}/_start")
         resp.raise_for_status()
         print(f"  ✅ {po.sales_order.internal_id} → in_progress")
 
@@ -584,7 +585,7 @@ def step6_advance_production(
             print(f"    • {phase.name} ({phase.id})")
 
             # Start the phase
-            resp = client.post(f"{BASE_URL}/api/product/production-order-phase/{phase.id}/_start")
+            resp = client.post(f"{ARKE_TENANT}/api/product/production-order-phase/{phase.id}/_start")
             resp.raise_for_status()
             print(f"      ✅ Phase started")
 
@@ -606,7 +607,7 @@ def step6_advance_production(
             # Complete the phase
             try:
                 # Fetch phase details to check if it's the final phase
-                phase_resp = client.get(f"{BASE_URL}/api/product/production-order-phase/{phase.id}")
+                phase_resp = client.get(f"{ARKE_TENANT}/api/product/production-order-phase/{phase.id}")
                 phase_resp.raise_for_status()
                 phase_data = phase_resp.json()
 
@@ -630,7 +631,7 @@ def step6_advance_production(
                     )
 
                 resp = client.post(
-                    f"{BASE_URL}/api/product/production-order-phase/{phase.id}/_complete",
+                    f"{ARKE_TENANT}/api/product/production-order-phase/{phase.id}/_complete",
                     json=completion_body,
                 )
                 resp.raise_for_status()
@@ -667,7 +668,7 @@ def build_product_details_cache(
 
     for product_id in tqdm(unique_product_ids, desc="Fetching product details"):
         try:
-            resp = client.get(f"{BASE_URL}/api/product/product/{product_id}")
+            resp = client.get(f"{ARKE_TENANT}/api/product/product/{product_id}")
             resp.raise_for_status()
             cache[product_id] = resp.json()
         except Exception as e:

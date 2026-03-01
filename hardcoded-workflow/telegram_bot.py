@@ -4,7 +4,7 @@ from typing import List
 
 from telegram import Bot
 
-from constants import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_POLL_TIMEOUT
+from environment import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_POLL_TIMEOUT
 
 BOT = Bot(token=TELEGRAM_BOT_TOKEN)
 
