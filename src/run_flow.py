@@ -548,8 +548,6 @@ def step5_get_human_approval(
             f"  📅 {po.starts_at.strftime('%b %d')} → {po.ends_at.strftime('%b %d')} "
             f"| deadline {so.deadline.strftime('%b %d')} | P{so.priority} {flag}"
         )
-
-    lines.append("\n✉️ Reply /approve to confirm, or /disapprove to defer.")
     message = "\n".join(lines)
 
     # Send via Telegram/Slack/Discord

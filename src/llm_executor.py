@@ -1,7 +1,8 @@
 import json
 import math
 from datetime import timedelta
-from typing import List, Tuple
+from functools import cache
+from typing import Dict, List, Tuple
 
 import httpx
 from pydantic import BaseModel, Field
@@ -72,7 +73,7 @@ class LLMExecutor:
         schedule_json = _serialize_schedule(production_orders)
         prompt = _conflict_detection_prompt(schedule_json)
 
-        raw = self._call_gemini(prompt, response_schema=ConflictReport.model_json_schema())
+        raw = self._conflict_gemini_call(prompt)
         report = ConflictReport.model_validate(raw)
 
         # Log detected pairs
@@ -100,7 +101,7 @@ class LLMExecutor:
         schedule_json = _serialize_schedule(production_orders)
         prompt = _modify_prompt(instruction, schedule_json)
 
-        raw = self._call_gemini(prompt, response_schema=ModifyReport.model_json_schema())
+        raw = self._modify_gemini_call(prompt)
         report = ModifyReport.model_validate(raw)
 
         print(f"[modify] Applying {len(report.operations)} operation(s):")
@@ -123,11 +124,27 @@ class LLMExecutor:
     def __exit__(self, *args) -> None:
         self._client.close()
 
+    @cache
+    def _conflict_gemini_call(self, prompt: str) -> Dict:
+        """
+        Cached version of Gemini call.
+        Caches based on the prompt string, so identical prompts will return the same response.
+        """
+        return self._call_gemini(prompt, response_schema=ConflictReport.model_json_schema())
+
+    @cache
+    def _modify_gemini_call(self, prompt: str) -> Dict:
+        """
+        Cached version of Gemini call.
+        Caches based on the prompt string, so identical prompts will return the same response.
+        """
+        return self._call_gemini(prompt, response_schema=ModifyReport.model_json_schema())
+
     # ------------------------------------------------------------------
     # Internal: Gemini call
     # ------------------------------------------------------------------
 
-    def _call_gemini(self, prompt: str, response_schema: dict) -> dict:
+    def _call_gemini(self, prompt: str, response_schema: Dict) -> Dict:
         """
         POST to Gemini generateContent with JSON response mode.
         Returns parsed dict ready for Pydantic validation.
@@ -181,9 +198,10 @@ A CONFLICT exists when:
   - If any order currently misses its deadline in the EDF schedule.
 
 Your tasks:
-1. Identify all conflicts and warn about them.
-2. Write a clear, concise operator_message (plain text, suitable for Telegram)
-   that explains any conflicts found and why they exist even using EDF. Suggest possible solutions.
+1. Identify all conflicts.
+2. Write a clear, concise operator_message in plain text suitable for Telegram
+   Do not expect markdown rendering, do not use newlines. Use emojis sparingly.
+   Explain any conflicts found and why they exist even using EDF.
 3. If no conflicts exist, say so briefly.
 
 Current EDF schedule (JSON):
@@ -226,7 +244,7 @@ Respond strictly according to the provided JSON schema.
 # ---------------------------------------------------------------------------
 
 
-def _serialize_schedule(production_orders: list[ProductionOrder]) -> str:
+def _serialize_schedule(production_orders: List[ProductionOrder]) -> str:
     rows = []
     for i, po in enumerate(production_orders):
         so = po.sales_order
@@ -302,7 +320,7 @@ def _apply_operations(
     return orders
 
 
-def _find_index(orders: list[ProductionOrder], internal_id: str | None) -> int | None:
+def _find_index(orders: List[ProductionOrder], internal_id: str | None) -> int | None:
     if internal_id is None:
         return None
     for i, po in enumerate(orders):
@@ -311,7 +329,7 @@ def _find_index(orders: list[ProductionOrder], internal_id: str | None) -> int |
     return None
 
 
-def _recompute_schedule(production_orders: list[ProductionOrder]) -> list[ProductionOrder]:
+def _recompute_schedule(production_orders: List[ProductionOrder]) -> List[ProductionOrder]:
     """
     Recompute starts_at / ends_at for every order based on current list order.
     Uses the same formula as compute_schedule() in scheduler.py:
@@ -348,7 +366,7 @@ def _recompute_schedule(production_orders: list[ProductionOrder]) -> list[Produc
 # ---------------------------------------------------------------------------
 
 
-def _inline_schema_refs(schema: dict) -> dict:
+def _inline_schema_refs(schema: Dict) -> Dict:
     """
     Convert Pydantic JSON schema with $ref/$defs to inline format for Gemini.
     Recursively replaces all $ref references with the actual definition.
