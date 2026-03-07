@@ -14,3 +14,15 @@
      - `ARKE_PASSWORD`: Your Arke password
      - `GEMINI_API_KEY`: Your Google Gemini API key
 4. Run manual flow: `poetry run python src/run_flow.py`
+
+## Dependencies
+
+### Core Libraries
+- **python-telegram-bot** (`^22.6`) - Telegram Bot API for sending messages and managing bot interactions
+- **opencv-python** (`^4.13.0.92`) - Computer vision library for image processing and analysis
+- **numpy** (`^2.1.3`) - Numerical computing library for array operations
+- **pydantic** (`^2.12.5`) - Data validation and parsing using Python type annotations
+- **httpx** (`^0.28.1`) - Async HTTP client library for making API requests
+- **tqdm** (`^4.66.6`) - Progress bar utility for tracking long-running operations
+- **python-dotenv** (`^1.2.1`) - Environment variable management from .env files
+
