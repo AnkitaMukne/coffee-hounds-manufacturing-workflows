@@ -32,13 +32,10 @@ We also have a video of the live demo available. Ping [@AnkitaMukne](https://git
      - `GEMINI_API_KEY`: Your Google Gemini API key
 
 
-### Usage
-
-Simply run the flow by calling `poetry run python src/run_flow.py` 🚀
-
 ### Dependencies
 
-### Core Libraries
+Install these using `Python >= 3.11`:
+
 - **python-telegram-bot** (`^22.6`) - Telegram Bot API for sending messages and managing bot interactions
 - **opencv-python** (`^4.13.0.92`) - Computer vision library for image processing and analysis
 - **numpy** (`^2.1.3`) - Numerical computing library for array operations
@@ -47,3 +44,7 @@ Simply run the flow by calling `poetry run python src/run_flow.py` 🚀
 - **tqdm** (`^4.66.6`) - Progress bar utility for tracking long-running operations
 - **python-dotenv** (`^1.2.1`) - Environment variable management from .env files
 
+
+### Usage
+
+Simply run the flow by calling `poetry run python src/run_flow.py` 🚀
