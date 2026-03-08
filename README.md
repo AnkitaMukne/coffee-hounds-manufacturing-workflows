@@ -2,7 +2,7 @@
 
 This is the submission code base for team `Coffee Hounds`'s submission to the [24h Physical AI Hackathon](https://archive.is/Imr6C) organised by [Forgis](https://www.forgis.com/), [Arke](https://www.arke.so/), [Google DeepMind](https://deepmind.google/), and [IBM Research](https://research.ibm.com/).
 
-Our team worked on the [Arke Challenge](https://archive.is/6TAy5), which is about creating an **intelligent agent to schedule manufacturing orders** in a simulated factory. You can find more info on the challenge setup.
+Our team worked on the [Arke Challenge](https://archive.is/6TAy5), which is about creating an **intelligent agent to schedule manufacturing orders** in a simulated factory.
 
 ## Our Solution
 
